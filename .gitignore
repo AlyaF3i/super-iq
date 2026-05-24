@@ -1,0 +1,10 @@
+.env
+__pycache__/
+.playwright-mcp/
+*.pyc
+zoho_schema*.json
+zoho_samples*.json
+.zoho_analytics_mcp_data/
+zoho_crm_models.py
+*.sqlite3
+chat_history.sqlite3
