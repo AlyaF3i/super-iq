@@ -11,16 +11,26 @@ from html import escape
 from pathlib import Path
 from typing import Any
 
-import anyio
 import requests
 from flask import Flask, jsonify, redirect, render_template_string, request
-from mcp import ClientSession, StdioServerParameters
-from mcp.client.stdio import stdio_client
-
-from zoho_coql import load_env
 
 
 APP_DIR = Path(__file__).resolve().parent
+
+
+def load_env(path: Path) -> dict[str, str]:
+    if not path.exists():
+        return {}
+    values = {}
+    for raw_line in path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        values[key.strip()] = value.strip().strip('"').strip("'")
+    return values
+
+
 ENV = {**load_env(APP_DIR / ".env"), **os.environ}
 OLLAMA_MODEL = ENV.get("OLLAMA_MODEL", "qwen3.5:9b")
 OLLAMA_URL = ENV.get("OLLAMA_URL", "http://localhost:11434").rstrip("/")
@@ -29,7 +39,7 @@ HOST_DATA_DIR = Path(ENV.get("ANALYTICS_MCP_HOST_DATA_DIR", APP_DIR / ".zoho_ana
 CONTAINER_DATA_DIR = ENV.get("ANALYTICS_MCP_DATA_DIR", "/tmp/zoho-analytics-mcp")
 LOCAL_DB_PATH = Path(ENV.get("LOCAL_CRM_DB", APP_DIR / "zoho_crm_local.sqlite3")).resolve()
 HISTORY_DB_PATH = Path(ENV.get("CHAT_HISTORY_DB", APP_DIR / "chat_history.sqlite3")).resolve()
-DATA_SOURCE = ENV.get("DATA_SOURCE", "local" if LOCAL_DB_PATH.exists() else "analytics").lower()
+DATA_SOURCE = ENV.get("DATA_SOURCE", "local").lower()
 
 app = Flask(__name__)
 
@@ -692,7 +702,9 @@ def analytics_env() -> dict[str, str]:
     return env
 
 
-def mcp_server_params() -> StdioServerParameters:
+def mcp_server_params():
+    from mcp import StdioServerParameters
+
     HOST_DATA_DIR.mkdir(parents=True, exist_ok=True)
     env = analytics_env()
     args = ["run", "--rm", "-i"]
@@ -713,6 +725,9 @@ def dump_model(obj: Any) -> Any:
 
 
 async def mcp_list_tools_async() -> list[dict[str, Any]]:
+    from mcp import ClientSession
+    from mcp.client.stdio import stdio_client
+
     async with stdio_client(mcp_server_params()) as (read, write):
         async with ClientSession(read, write) as session:
             await session.initialize()
@@ -728,6 +743,9 @@ async def mcp_list_tools_async() -> list[dict[str, Any]]:
 
 
 async def mcp_call_tool_async(name: str, arguments: dict[str, Any]) -> dict[str, Any]:
+    from mcp import ClientSession
+    from mcp.client.stdio import stdio_client
+
     async with stdio_client(mcp_server_params()) as (read, write):
         async with ClientSession(read, write) as session:
             await session.initialize()
@@ -736,10 +754,14 @@ async def mcp_call_tool_async(name: str, arguments: dict[str, Any]) -> dict[str,
 
 
 def mcp_list_tools() -> list[dict[str, Any]]:
+    import anyio
+
     return anyio.run(mcp_list_tools_async)
 
 
 def mcp_call_tool(name: str, arguments: dict[str, Any]) -> dict[str, Any]:
+    import anyio
+
     return anyio.run(mcp_call_tool_async, name, arguments)
 
 

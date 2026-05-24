@@ -13,74 +13,35 @@ def run(args: list[str]) -> None:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Export Zoho CRM schema, generate models, and seed SQLite.")
-    parser.add_argument("--version", default="v8", help="Zoho CRM API version. Default: v8")
-    parser.add_argument("--schema", default="zoho_schema.json")
-    parser.add_argument("--models", default="zoho_crm_models.py")
-    parser.add_argument("--database", default="zoho_crm_local.sqlite3")
-    parser.add_argument("--samples", default="zoho_samples.json")
-    parser.add_argument("--sample-rows", type=int, default=5)
-    parser.add_argument("--rows", type=int, default=25)
-    parser.add_argument("--skip-export", action="store_true", help="Use an existing schema JSON file")
-    parser.add_argument("--skip-samples", action="store_true", help="Do not fetch real sample rows with COQL")
-    parser.add_argument("--text-schema", default=None, help="Use a local text schema file instead of Zoho schema export")
+    parser = argparse.ArgumentParser(description="Generate local CRM models and seed SQLite from a text schema.")
+    parser.add_argument("--text-schema", default="schema", help="Local text schema file. Default: schema")
+    parser.add_argument("--schema", default="zoho_schema.json", help="Generated JSON schema path")
+    parser.add_argument("--models", default="zoho_crm_models.py", help="Generated SQLAlchemy models path")
+    parser.add_argument("--database", default="zoho_crm_local.sqlite3", help="Generated SQLite database path")
+    parser.add_argument("--rows", type=int, default=200, help="Rows to generate per table. Default: 200")
     args = parser.parse_args()
 
+    if not Path(args.text_schema).exists():
+        raise SystemExit(f"Text schema file does not exist: {args.text_schema}")
+
     python = sys.executable
-    if args.text_schema:
-        run([python, "convert_text_schema.py", "--input", args.text_schema, "--output", args.schema])
-        args.skip_samples = True
-    elif not args.skip_export:
-        run(
-            [
-                python,
-                "export_zoho_schema.py",
-                "--version",
-                args.version,
-                "--output",
-                args.schema,
-                "--force-refresh",
-                "--save-token",
-            ]
-        )
-
-    if not Path(args.schema).exists():
-        raise SystemExit(f"Schema file does not exist: {args.schema}")
-
-    if not args.skip_samples:
-        run(
-            [
-                python,
-                "export_zoho_samples.py",
-                "--version",
-                args.version,
-                "--schema",
-                args.schema,
-                "--output",
-                args.samples,
-                "--rows",
-                str(args.sample_rows),
-                "--save-token",
-            ]
-        )
-
+    run([python, "convert_text_schema.py", "--input", args.text_schema, "--output", args.schema])
     run([python, "generate_zoho_models.py", "--schema", args.schema, "--output", args.models])
-    seed_command = [
-        python,
-        "seed_zoho_sqlite.py",
-        "--schema",
-        args.schema,
-        "--models",
-        args.models,
-        "--database",
-        args.database,
-        "--rows",
-        str(args.rows),
-        "--drop-existing",
-    ]
-    if Path(args.samples).exists():
-        seed_command.extend(["--samples", args.samples])
-    run(seed_command)
+    run(
+        [
+            python,
+            "seed_zoho_sqlite.py",
+            "--schema",
+            args.schema,
+            "--models",
+            args.models,
+            "--database",
+            args.database,
+            "--rows",
+            str(args.rows),
+            "--drop-existing",
+        ]
+    )
     return 0
 
 

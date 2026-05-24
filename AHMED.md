@@ -23,7 +23,7 @@ ollama pull qwen3.5:9b
 This reads `schema`, generates Python models, and creates `zoho_crm_local.sqlite3` with 200 synthetic rows per table.
 
 ```powershell
-python build_local_crm.py --text-schema schema --rows 200
+python build_local_crm.py
 ```
 
 ## 4. Start the app

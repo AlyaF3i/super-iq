@@ -1,6 +1,4 @@
-anyio
 flask
-mcp
 requests
 pandas
 polars
