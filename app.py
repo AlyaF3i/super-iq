@@ -1209,6 +1209,10 @@ UNSUPPORTED_TERMS = {
     "capital of": "Geographic information is not available in the local CRM schema.",
     "population": "Demographic data is not available in the local CRM schema.",
     "recipe": "Food or recipe data is not available in the local CRM schema.",
+    "عاصمة": "Geographic information is not available in the local CRM schema.",
+    "رئيس": "Political information is not available in the local CRM schema.",
+    "قصيدة": "Creative writing is not available in the local CRM schema.",
+    "نكتة": "Entertainment is not available in the local CRM schema.",
 }
 
 
@@ -1445,6 +1449,15 @@ def wants_python_tool(user_message: str) -> bool:
             "focus",
             "recommend",
             "recommendation",
+            "تحليل",
+            "حلل", 
+            "قارن",
+            "أعلى",
+            "أقل",
+            "متوسط",
+            "مجموع",
+            "توزيع",
+            "مقارنة",
         ]
     )
 
