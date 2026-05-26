@@ -52,26 +52,33 @@ HTML = """
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{{ title }}</title>
   <style>
-    :root { color-scheme: light; font-family: Inter, Segoe UI, Arial, sans-serif; }
-    body { margin: 0; background: #f5f7f8; color: #182026; }
-    main { max-width: 1040px; margin: 0 auto; padding: 28px; }
-    header { display: flex; justify-content: space-between; gap: 18px; align-items: flex-start; margin-bottom: 18px; }
-    h1 { font-size: 24px; line-height: 1.2; margin: 0; }
-    .status { font-size: 13px; color: #52616b; text-align: right; }
-    .shell { display: grid; grid-template-columns: 220px minmax(0, 1fr) 320px; gap: 16px; align-items: start; }
-    .panel { background: #fff; border: 1px solid #d9e0e4; border-radius: 8px; overflow: hidden; }
-    #messages { height: 62vh; min-height: 420px; overflow: auto; padding: 18px; display: flex; flex-direction: column; gap: 12px; }
+    :root { color-scheme: light; font-family: Inter, Segoe UI, Arial, sans-serif; --navy: #061427; --blue: #149ee7; --cyan: #2fd3ff; --ink: #101c2e; --line: #d7e5ee; --soft: #f3f8fb; }
+    body { margin: 0; background: linear-gradient(180deg, #eef7fc 0%, #f7fbfe 46%, #edf4f8 100%); color: var(--ink); }
+    .topbar { position: relative; overflow: hidden; background: radial-gradient(circle at 56% 0%, rgba(47, 211, 255, 0.22), transparent 34%), linear-gradient(135deg, #020915 0%, #061427 54%, #0a2742 100%); color: white; border-bottom: 4px solid var(--blue); }
+    .topbar::after { content: ""; position: absolute; inset: 0; background: repeating-linear-gradient(135deg, transparent 0 18px, rgba(47, 211, 255, 0.72) 18px 26px, transparent 26px 44px); width: 190px; left: auto; opacity: 0.85; }
+    .topbar-inner { position: relative; z-index: 1; max-width: 1320px; margin: 0 auto; padding: 16px 28px 20px; display: grid; grid-template-columns: 210px auto minmax(0, 1fr); gap: 24px; align-items: center; }
+    .brand { font-weight: 900; font-size: 24px; line-height: 1; letter-spacing: 0; }
+    .brand span { color: var(--cyan); }
+    .hero-title { font-size: 28px; font-weight: 800; line-height: 1.16; text-shadow: 0 2px 8px rgba(0, 0, 0, 0.36); }
+    .hero-title span { color: var(--cyan); }
+    .status { font-size: 13px; color: #52616b; text-align: right; white-space: nowrap; }
+    main { max-width: 1320px; margin: 0 auto; padding: 24px 28px 32px; }
+    header { display: flex; justify-content: space-between; gap: 18px; align-items: center; margin-bottom: 18px; }
+    h1 { font-size: 22px; line-height: 1.2; margin: 0; }
+    .shell { display: grid; grid-template-columns: 240px minmax(620px, 1fr) 340px; gap: 18px; align-items: start; }
+    .panel { background: rgba(255, 255, 255, 0.96); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; box-shadow: 0 14px 36px rgba(7, 33, 54, 0.08); }
+    #messages { height: 66vh; min-height: 460px; overflow: auto; padding: 20px; display: flex; flex-direction: column; gap: 12px; }
     .msg { max-width: 86%; padding: 12px 14px; border-radius: 8px; white-space: pre-wrap; line-height: 1.45; font-size: 14px; }
-    .user { align-self: flex-end; background: #184d47; color: white; }
-    .assistant { align-self: flex-start; background: #eef3f1; color: #182026; }
+    .user { align-self: flex-end; background: linear-gradient(135deg, #0a4f8f, #149ee7); color: white; }
+    .assistant { align-self: flex-start; background: #edf7fc; color: #101c2e; border: 1px solid #d7eaf5; }
     .meta { align-self: flex-start; color: #52616b; font-size: 12px; padding: 0 2px; }
     .trace { align-self: flex-start; max-width: 92%; font-size: 12px; color: #334149; }
-    .trace a { color: #184d47; font-weight: 700; text-decoration: none; }
-    .trace summary { cursor: pointer; color: #184d47; font-weight: 700; }
+    .trace a { color: #0a76ba; font-weight: 700; text-decoration: none; }
+    .trace summary { cursor: pointer; color: #0a76ba; font-weight: 700; }
     .trace pre { background: #182026; color: #f5f7f8; padding: 12px; border-radius: 6px; overflow: auto; max-height: 360px; }
-    form { display: flex; border-top: 1px solid #d9e0e4; }
+    form { display: flex; border-top: 1px solid var(--line); }
     textarea { flex: 1; border: 0; resize: vertical; min-height: 58px; max-height: 180px; padding: 14px; font: inherit; outline: none; }
-    button { border: 0; background: #c75032; color: white; padding: 0 22px; font-weight: 700; cursor: pointer; }
+    button { border: 0; background: #0b83cc; color: white; padding: 0 22px; font-weight: 700; cursor: pointer; }
     button:disabled { background: #9ba8ae; cursor: wait; }
     aside { padding: 16px; }
     h2 { font-size: 15px; margin: 0 0 12px; }
@@ -83,34 +90,41 @@ HTML = """
     .suggestion-group { border-bottom: 1px solid #edf1f3; padding-bottom: 12px; }
     .suggestion-group:last-child { border-bottom: 0; padding-bottom: 0; }
     .suggestion-category { color: #52616b; font-size: 11px; font-weight: 800; letter-spacing: 0.04em; text-transform: uppercase; margin-bottom: 8px; }
-    .suggestion-button { display: block; width: 100%; border: 1px solid #d9e0e4; background: #f7faf9; color: #182026; border-radius: 6px; padding: 8px 9px; margin: 6px 0; text-align: left; font-size: 12px; font-weight: 600; line-height: 1.35; cursor: pointer; }
-    .suggestion-button:hover { border-color: #184d47; background: #eef3f1; }
+    .suggestion-button { display: block; width: 100%; border: 1px solid #d7eaf5; background: #f3f9fd; color: #101c2e; border-radius: 6px; padding: 9px 10px; margin: 6px 0; text-align: left; font-size: 12px; font-weight: 700; line-height: 1.35; cursor: pointer; }
+    .suggestion-button:hover { border-color: #149ee7; background: #e7f5fd; }
     .small { color: #52616b; font-size: 12px; line-height: 1.45; }
-    .nav { display: flex; gap: 12px; margin-top: 8px; }
-    .nav a { color: #184d47; font-size: 13px; font-weight: 700; text-decoration: none; }
+    .nav { display: flex; gap: 10px; margin-top: 0; justify-content: flex-start; }
+    .nav a { color: white; font-size: 15px; font-weight: 800; text-decoration: none; padding: 10px 15px; border: 1px solid rgba(47, 211, 255, 0.45); border-radius: 6px; background: rgba(20, 158, 231, 0.18); }
+    .nav a:hover { background: rgba(47, 211, 255, 0.28); }
     .msg table, .data-table { border-collapse: collapse; width: 100%; margin-top: 8px; font-size: 13px; }
     .msg th, .msg td, .data-table th, .data-table td { border: 1px solid #ccd6da; padding: 7px 8px; text-align: left; vertical-align: top; }
     .msg th, .data-table th { background: #dde8e5; color: #182026; }
     .msg code { background: #dce7e4; padding: 1px 4px; border-radius: 4px; }
     .data-controls { display: flex; gap: 10px; align-items: center; margin: 16px 0; flex-wrap: wrap; }
     .session-list { display: flex; flex-direction: column; gap: 8px; }
-    .session-list a { color: #184d47; text-decoration: none; font-size: 13px; padding: 8px; border-radius: 6px; background: #eef3f1; }
-    .session-list a.active { background: #184d47; color: white; }
-    .new-chat { display: block; text-align: center; background: #c75032; color: white; text-decoration: none; padding: 9px 10px; border-radius: 6px; font-weight: 700; margin-bottom: 12px; }
+    .session-list a { color: #0b4771; text-decoration: none; font-size: 13px; padding: 8px; border-radius: 6px; background: #edf7fc; }
+    .session-list a.active { background: #0b4771; color: white; }
+    .new-chat { display: block; text-align: center; background: #0b83cc; color: white; text-decoration: none; padding: 9px 10px; border-radius: 6px; font-weight: 700; margin-bottom: 12px; }
     select, input { border: 1px solid #c9d3d7; border-radius: 6px; padding: 8px 10px; font: inherit; background: white; }
     .table-wrap { overflow: auto; max-height: 68vh; border: 1px solid #d9e0e4; border-radius: 8px; background: white; }
-    @media (max-width: 980px) { main { padding: 16px; } .shell { grid-template-columns: 1fr; } #messages { height: 58vh; } header { display: block; } .status { text-align: left; margin-top: 8px; } }
+    @media (max-width: 1040px) { .topbar-inner { grid-template-columns: 1fr; gap: 12px; } main { padding: 16px; } .shell { grid-template-columns: 1fr; } #messages { height: 58vh; } header { display: block; } .status { text-align: left; } .nav { flex-wrap: wrap; } }
   </style>
 </head>
 <body>
+<div class="topbar">
+  <div class="topbar-inner">
+    <div class="brand">Cyber<span>|</span>Gate</div>
+    <nav class="nav"><a href="/">Chat</a><a href="/data">Data</a></nav>
+    <div class="hero-title">Local CRM <span>Intelligence</span> Console</div>
+  </div>
+</div>
 <main>
   <header>
     <div>
       <h1>{{ title }}</h1>
       <div class="small">Ollama model: {{ model }} | Source: {{ data_source }}</div>
-      <nav class="nav"><a href="/">Chat</a><a href="/data">Data</a></nav>
     </div>
-    <div class="status" id="status">Checking MCP tools...</div>
+    <div class="status" id="status">Local CRM ready</div>
   </header>
   <div class="shell">
     <aside class="panel">
@@ -149,8 +163,6 @@ HTML = """
           <button class="suggestion-button" type="button" data-prompt="Identify our top performing accounts and their revenue contribution">Identify our top performing accounts and their revenue contribution</button>
         </div>
       </div>
-      <h2>{{ sidebar_title }}</h2>
-      <div id="tools" class="small">Loading...</div>
     </aside>
   </div>
 </main>
@@ -160,7 +172,6 @@ const form = document.getElementById('chatForm');
 const promptBox = document.getElementById('prompt');
 const send = document.getElementById('send');
 const statusEl = document.getElementById('status');
-const toolsEl = document.getElementById('tools');
 const sessionsEl = document.getElementById('sessions');
 const chatId = new URLSearchParams(window.location.search).get('chat') || '{{ chat_id }}';
 
@@ -248,11 +259,9 @@ async function loadTools() {
   const data = await res.json();
   if (!data.ok) {
     statusEl.textContent = data.error;
-    toolsEl.textContent = 'No tools loaded.';
     return;
   }
   statusEl.textContent = `${data.tools.length} tools loaded`;
-  toolsEl.innerHTML = data.tools.map(t => `<div class="tool"><strong>${t.name}</strong><span>${t.description || ''}</span></div>`).join('');
 }
 
 async function loadSessions() {
@@ -309,7 +318,6 @@ form.addEventListener('submit', async (event) => {
   }
 });
 
-loadTools();
 loadSessions();
 loadHistory();
 </script>
@@ -325,33 +333,47 @@ DATA_HTML = """
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Local CRM Data</title>
   <style>
-    :root { color-scheme: light; font-family: Inter, Segoe UI, Arial, sans-serif; }
-    body { margin: 0; background: #f5f7f8; color: #182026; }
-    main { max-width: 1180px; margin: 0 auto; padding: 28px; }
+    :root { color-scheme: light; font-family: Inter, Segoe UI, Arial, sans-serif; --navy: #061427; --blue: #149ee7; --cyan: #2fd3ff; --ink: #101c2e; --line: #d7e5ee; }
+    body { margin: 0; background: linear-gradient(180deg, #eef7fc 0%, #f7fbfe 46%, #edf4f8 100%); color: var(--ink); }
+    .topbar { position: relative; overflow: hidden; background: radial-gradient(circle at 56% 0%, rgba(47, 211, 255, 0.22), transparent 34%), linear-gradient(135deg, #020915 0%, #061427 54%, #0a2742 100%); color: white; border-bottom: 4px solid var(--blue); }
+    .topbar::after { content: ""; position: absolute; inset: 0; background: repeating-linear-gradient(135deg, transparent 0 18px, rgba(47, 211, 255, 0.72) 18px 26px, transparent 26px 44px); width: 190px; left: auto; opacity: 0.85; }
+    .topbar-inner { position: relative; z-index: 1; max-width: 1320px; margin: 0 auto; padding: 16px 28px 20px; display: grid; grid-template-columns: 210px auto minmax(0, 1fr); gap: 24px; align-items: center; }
+    .brand { font-weight: 900; font-size: 24px; line-height: 1; }
+    .brand span, .hero-title span { color: var(--cyan); }
+    .hero-title { font-size: 28px; font-weight: 800; line-height: 1.16; text-shadow: 0 2px 8px rgba(0, 0, 0, 0.36); }
+    main { max-width: 1320px; margin: 0 auto; padding: 24px 28px 32px; }
     header { display: flex; justify-content: space-between; gap: 18px; align-items: flex-start; margin-bottom: 18px; }
     h1 { font-size: 24px; margin: 0; }
     .small { color: #52616b; font-size: 12px; line-height: 1.45; }
-    .nav { display: flex; gap: 12px; margin-top: 8px; }
-    .nav a { color: #184d47; font-size: 13px; font-weight: 700; text-decoration: none; }
-    .panel { background: #fff; border: 1px solid #d9e0e4; border-radius: 8px; padding: 16px; }
+    .nav { display: flex; gap: 10px; margin-top: 0; justify-content: flex-start; }
+    .nav a { color: white; font-size: 15px; font-weight: 800; text-decoration: none; padding: 10px 15px; border: 1px solid rgba(47, 211, 255, 0.45); border-radius: 6px; background: rgba(20, 158, 231, 0.18); }
+    .nav a:hover { background: rgba(47, 211, 255, 0.28); }
+    .panel { background: rgba(255, 255, 255, 0.96); border: 1px solid var(--line); border-radius: 8px; padding: 16px; box-shadow: 0 14px 36px rgba(7, 33, 54, 0.08); }
     .data-controls { display: flex; gap: 10px; align-items: center; margin-bottom: 16px; flex-wrap: wrap; }
     select, input, button { border: 1px solid #c9d3d7; border-radius: 6px; padding: 8px 10px; font: inherit; background: white; }
-    button { background: #184d47; color: white; border-color: #184d47; cursor: pointer; font-weight: 700; }
+    button { background: #0b83cc; color: white; border-color: #0b83cc; cursor: pointer; font-weight: 700; }
     .table-wrap { overflow: auto; max-height: 68vh; border: 1px solid #d9e0e4; border-radius: 8px; background: white; }
     table { border-collapse: collapse; width: 100%; font-size: 13px; }
     th, td { border-bottom: 1px solid #e5ecef; border-right: 1px solid #edf1f3; padding: 7px 8px; text-align: left; vertical-align: top; white-space: nowrap; }
-    th { background: #dde8e5; position: sticky; top: 0; z-index: 1; }
+    th { background: #dff1fb; position: sticky; top: 0; z-index: 1; }
     td { max-width: 320px; overflow: hidden; text-overflow: ellipsis; }
     .status { margin: 10px 0; color: #52616b; font-size: 13px; }
+    @media (max-width: 1040px) { .topbar-inner { grid-template-columns: 1fr; gap: 12px; } main { padding: 16px; } .nav { flex-wrap: wrap; } }
   </style>
 </head>
 <body>
+<div class="topbar">
+  <div class="topbar-inner">
+    <div class="brand">Cyber<span>|</span>Gate</div>
+    <nav class="nav"><a href="/">Chat</a><a href="/data">Data</a></nav>
+    <div class="hero-title">Local CRM <span>Data</span> Viewer</div>
+  </div>
+</div>
 <main>
   <header>
     <div>
       <h1>Local CRM Data</h1>
       <div class="small">SQLite: {{ db_path }}</div>
-      <nav class="nav"><a href="/">Chat</a><a href="/data">Data</a></nav>
     </div>
   </header>
   <section class="panel">
