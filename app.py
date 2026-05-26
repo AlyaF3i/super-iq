@@ -912,6 +912,15 @@ DOMAIN_TERMS = {
     "teams",
     "manager",
     "managers",
+    "payment",
+    "payments",
+    "overdue",
+    "invoice",
+    "invoices",
+    "due",
+    "balance",
+    "grand_total",
+    "billing",
 }
 
 
@@ -925,6 +934,19 @@ UNSUPPORTED_TERMS = {
     "churn": "No churn, subscription, renewal, or cancellation fields exist in the local CRM schema.",
     "subscription": "No subscription fields exist in the local CRM schema.",
     "weather": "Weather data is not present in the local CRM database.",
+    "president": "Political or government information is not available in the local CRM schema.",
+    "prime minister": "Political or government information is not available in the local CRM schema.",
+    "football": "Sports data is not available in the local CRM schema.",
+    "soccer": "Sports data is not available in the local CRM schema.",
+    "match": "Sports or game data is not available in the local CRM schema.",
+    "premier league": "Sports data is not available in the local CRM schema.",
+    "movie": "Entertainment data is not available in the local CRM schema.",
+    "song": "Entertainment data is not available in the local CRM schema.",
+    "poem": "Creative writing is not available in the local CRM schema.",
+    "joke": "Entertainment is not available in the local CRM schema.",
+    "capital of": "Geographic information is not available in the local CRM schema.",
+    "population": "Demographic data is not available in the local CRM schema.",
+    "recipe": "Food or recipe data is not available in the local CRM schema.",
 }
 
 
@@ -1024,6 +1046,14 @@ def aggregate_in_group_by(sql: str) -> bool:
 
 def choose_local_sql(user_message: str, schema: list[dict[str, Any]], previous_error: str | None = None) -> str:
     text = user_message.lower()
+    def choose_local_sql(user_message: str, schema: list[dict[str, Any]], previous_error: str | None = None) -> str:
+        text = user_message.lower()
+    
+    # Deterministic overrides
+    if any(w in text for w in ['overdue', 'overdue payment', 'overdue invoice']):
+        return "SELECT Subject, Account_Name, Grand_Total, Due_Date, Invoice_Status FROM Invoices WHERE Due_Date < date('now') ORDER BY Due_Date ASC LIMIT 50"
+
+    table_names = {table["name"].lower(): table["name"] for table in schema}
     table_names = {table["name"].lower(): table["name"] for table in schema}
 
     for lower_name, table_name in table_names.items():
@@ -1046,7 +1076,13 @@ def choose_local_sql(user_message: str, schema: list[dict[str, Any]], previous_e
                     "GROUP BY may contain only raw non-aggregate columns. Never put COUNT, SUM, AVG, MIN, MAX, "
                     "or calculated aggregate expressions in the GROUP BY clause. Put aggregate expressions in SELECT, "
                     "HAVING, or ORDER BY instead. "
-                    "Always include a LIMIT of 50 or less unless the query returns aggregate rows."
+                    "Always include a LIMIT of 50 or less unless the query returns aggregate rows. "
+                    "When asked about 'industry', always use the Industry column from the Accounts table, never from Lead_Status or any status field. "
+                    "When asked about 'overdue payments' or 'overdue invoices', use the Invoices table with Due_Date < date('now') to find overdue records. The status column is Invoice_Status. "
+                    "Only answer questions that are strictly about CRM business data. "
+                    "If the question is about sports, politics, entertainment, geography, or any non-business topic, "
+                    "do not attempt to answer it from the database. "
+                    "When asked about 'industry', always use the Industry column from the Accounts table, never from Lead_Status."
                 ),
             },
             {
