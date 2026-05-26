@@ -74,6 +74,9 @@ HTML = """
     .meta { align-self: flex-start; color: #52616b; font-size: 12px; padding: 0 2px; }
     .trace { align-self: flex-start; max-width: 92%; font-size: 12px; color: #334149; }
     .trace a { color: #0a76ba; font-weight: 700; text-decoration: none; }
+    .feedback-button { border: 1px solid #c8d9e4; background: white; color: #52616b; border-radius: 999px; padding: 4px 9px; margin-left: 10px; font-size: 12px; font-weight: 800; line-height: 1; vertical-align: middle; }
+    .feedback-button:hover { border-color: #0b83cc; color: #0b83cc; }
+    .feedback-button:disabled { background: #edf3f7; color: #7d8b94; cursor: default; }
     .trace summary { cursor: pointer; color: #0a76ba; font-weight: 700; }
     .trace pre { background: #182026; color: #f5f7f8; padding: 12px; border-radius: 6px; overflow: auto; max-height: 360px; }
     form { display: flex; border-top: 1px solid var(--line); }
@@ -238,11 +241,11 @@ function addMeta(text) {
   messages.scrollTop = messages.scrollHeight;
 }
 
-function addTrace(traceId) {
+function addTrace(traceId, disliked = false) {
   if (!traceId) return;
   const box = document.createElement('div');
   box.className = 'trace';
-  box.innerHTML = `<a href="/trace-page/${traceId}" target="_blank" rel="noopener">Response details</a>`;
+  box.innerHTML = `<a href="/trace-page/${traceId}" target="_blank" rel="noopener">Response details</a><button class="feedback-button" type="button" data-trace="${traceId}" ${disliked ? 'disabled' : ''}>${disliked ? 'Disliked' : 'Dislike'}</button>`;
   messages.appendChild(box);
   messages.scrollTop = messages.scrollHeight;
 }
@@ -251,7 +254,7 @@ function renderTurn(turn) {
   addMessage(turn.user_message, 'user');
   if (turn.tool_name) addMeta(`Tool used: ${turn.tool_name}`);
   addMessage(turn.answer, 'assistant');
-  addTrace(turn.trace_id);
+  addTrace(turn.trace_id, Boolean(turn.disliked));
 }
 
 async function loadTools() {
@@ -306,7 +309,7 @@ form.addEventListener('submit', async (event) => {
     } else {
       if (data.tool_name) addMeta(`Tool used: ${data.tool_name}`);
       addMessage(data.answer, 'assistant');
-      addTrace(data.trace_id);
+      addTrace(data.trace_id, false);
       loadSessions();
     }
   } catch (err) {
@@ -315,6 +318,27 @@ form.addEventListener('submit', async (event) => {
   } finally {
     send.disabled = false;
     promptBox.focus();
+  }
+});
+
+messages.addEventListener('click', async (event) => {
+  const button = event.target.closest('.feedback-button');
+  if (!button || button.disabled) return;
+  const traceId = button.dataset.trace;
+  button.disabled = true;
+  button.textContent = 'Saving...';
+  try {
+    const res = await fetch('/feedback/dislike', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({trace_id: traceId})
+    });
+    const data = await res.json();
+    button.textContent = data.ok ? 'Disliked' : 'Retry';
+    button.disabled = Boolean(data.ok);
+  } catch (err) {
+    button.textContent = 'Retry';
+    button.disabled = false;
   }
 });
 
@@ -518,6 +542,63 @@ TRACE_HTML = """
 </html>
 """
 
+FEEDBACK_HTML = """
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Disliked Responses</title>
+  <style>
+    :root { color-scheme: light; font-family: Inter, Segoe UI, Arial, sans-serif; --navy: #061427; --blue: #149ee7; --cyan: #2fd3ff; --ink: #101c2e; --line: #d7e5ee; }
+    body { margin: 0; background: #f3f8fb; color: var(--ink); }
+    main { max-width: 1180px; margin: 0 auto; padding: 28px; }
+    header { display: flex; justify-content: space-between; gap: 18px; align-items: flex-start; margin-bottom: 18px; }
+    h1 { font-size: 24px; margin: 0; }
+    h2 { font-size: 16px; margin: 0 0 10px; }
+    .small { color: #52616b; font-size: 12px; line-height: 1.45; }
+    .nav { display: flex; gap: 12px; margin-top: 8px; }
+    .nav a { color: #0a76ba; font-size: 13px; font-weight: 800; text-decoration: none; }
+    .items { display: grid; gap: 14px; }
+    .item { background: white; border: 1px solid var(--line); border-radius: 8px; padding: 16px; box-shadow: 0 10px 26px rgba(7, 33, 54, 0.06); }
+    .grid { display: grid; grid-template-columns: 160px minmax(0, 1fr); gap: 8px; font-size: 13px; margin: 8px 0; }
+    pre { background: #061427; color: #f5fbff; padding: 12px; border-radius: 6px; overflow: auto; max-height: 360px; white-space: pre-wrap; }
+    table { border-collapse: collapse; width: 100%; margin-top: 8px; font-size: 13px; }
+    th, td { border: 1px solid #ccd6da; padding: 7px 8px; text-align: left; vertical-align: top; }
+    th { background: #dff1fb; }
+  </style>
+</head>
+<body>
+<main>
+  <header>
+    <div>
+      <h1>Disliked Responses</h1>
+      <div class="small">Hidden model diagnostics for responses users marked as not good enough.</div>
+      <nav class="nav"><a href="/">Chat</a><a href="/data">Data</a></nav>
+    </div>
+  </header>
+  <section class="items">
+    {% if not items %}
+      <article class="item"><p>No disliked responses yet.</p></article>
+    {% endif %}
+    {% for item in items %}
+      <article class="item">
+        <h2>{{ item.user_message }}</h2>
+        <div class="grid"><strong>Disliked at</strong><span>{{ item.feedback_created_at }}</span></div>
+        <div class="grid"><strong>Tool</strong><span>{{ item.tool_name or "none" }}</span></div>
+        <div class="grid"><strong>Trace</strong><span><a href="/trace-page/{{ item.id }}" target="_blank" rel="noopener">{{ item.id }}</a></span></div>
+        <h2>Answer</h2>
+        <pre>{{ item.answer }}</pre>
+        <h2>Hidden Diagnostic</h2>
+        {{ render_json(item.feedback)|safe }}
+      </article>
+    {% endfor %}
+  </section>
+</main>
+</body>
+</html>
+"""
+
 
 def init_history_db() -> None:
     con = sqlite3.connect(HISTORY_DB_PATH)
@@ -549,6 +630,12 @@ def init_history_db() -> None:
         columns = [row[1] for row in con.execute("pragma table_info(chat_turns)")]
         if "session_id" not in columns:
             con.execute("alter table chat_turns add column session_id text")
+        if "disliked" not in columns:
+            con.execute("alter table chat_turns add column disliked integer not null default 0")
+        if "feedback_json" not in columns:
+            con.execute("alter table chat_turns add column feedback_json text")
+        if "feedback_created_at" not in columns:
+            con.execute("alter table chat_turns add column feedback_created_at text")
         con.execute(
             """
             insert or ignore into chat_sessions (id, title, created_at, updated_at)
@@ -667,7 +754,7 @@ def load_chat_history(session_id: str, limit: int = 50) -> list[dict[str, Any]]:
     try:
         rows = con.execute(
             """
-            select id, created_at, data_source, user_message, answer, tool_name
+            select id, created_at, data_source, user_message, answer, tool_name, disliked
             from chat_turns
             where session_id = ?
             order by created_at desc
@@ -683,6 +770,7 @@ def load_chat_history(session_id: str, limit: int = 50) -> list[dict[str, Any]]:
                 "user_message": row["user_message"],
                 "answer": row["answer"],
                 "tool_name": row["tool_name"],
+                "disliked": bool(row["disliked"]),
             }
             for row in reversed(rows)
         ]
@@ -696,6 +784,124 @@ def load_trace(trace_id: str) -> dict[str, Any] | None:
     try:
         row = con.execute("select trace_json from chat_turns where id = ?", (trace_id,)).fetchone()
         return json.loads(row[0]) if row else None
+    finally:
+        con.close()
+
+
+def build_feedback_diagnostic(user_message: str, answer: str, tool_name: str | None, trace: dict[str, Any]) -> dict[str, Any]:
+    try:
+        content = ollama_chat(
+            [
+                {
+                    "role": "system",
+                    "content": (
+                        "You review a local CRM assistant response that the user disliked. "
+                        "Return only JSON with keys: likely_issue, evidence, better_action, prompt_or_routing_fix, "
+                        "data_or_tool_gap, severity. Be concise. Do not apologize. Do not address the user."
+                    ),
+                },
+                {
+                    "role": "user",
+                    "content": json.dumps(
+                        {
+                            "question": user_message,
+                            "answer": answer,
+                            "tool_name": tool_name,
+                            "trace_summary": {
+                                "tool_name": trace.get("tool_name"),
+                                "steps": [
+                                    {
+                                        "name": step.get("name"),
+                                        "tool": step.get("tool"),
+                                        "reason": step.get("reason"),
+                                        "error": step.get("error"),
+                                    }
+                                    for step in (trace.get("steps") or [])[:8]
+                                ],
+                            },
+                        },
+                        ensure_ascii=False,
+                        default=str,
+                    ),
+                },
+            ],
+            json_mode=True,
+        )
+        diagnostic = parse_json_object(content)
+    except Exception as exc:
+        diagnostic = {
+            "likely_issue": "Diagnostic generation failed.",
+            "evidence": str(exc),
+            "better_action": "Review the trace manually.",
+            "prompt_or_routing_fix": "",
+            "data_or_tool_gap": "",
+            "severity": "unknown",
+        }
+    return diagnostic
+
+
+def save_dislike_feedback(trace_id: str) -> dict[str, Any] | None:
+    init_history_db()
+    con = sqlite3.connect(HISTORY_DB_PATH)
+    con.row_factory = sqlite3.Row
+    try:
+        row = con.execute(
+            """
+            select id, user_message, answer, tool_name, trace_json
+            from chat_turns
+            where id = ?
+            """,
+            (trace_id,),
+        ).fetchone()
+        if not row:
+            return None
+        trace_payload = json.loads(row["trace_json"])
+        diagnostic = build_feedback_diagnostic(
+            row["user_message"],
+            row["answer"],
+            row["tool_name"],
+            trace_payload,
+        )
+        con.execute(
+            """
+            update chat_turns
+            set disliked = 1,
+                feedback_json = ?,
+                feedback_created_at = datetime('now')
+            where id = ?
+            """,
+            (json.dumps(diagnostic, ensure_ascii=False, default=str), trace_id),
+        )
+        con.commit()
+        return diagnostic
+    finally:
+        con.close()
+
+
+def load_disliked_feedback(limit: int = 100) -> list[dict[str, Any]]:
+    init_history_db()
+    con = sqlite3.connect(HISTORY_DB_PATH)
+    con.row_factory = sqlite3.Row
+    try:
+        rows = con.execute(
+            """
+            select id, created_at, feedback_created_at, user_message, answer, tool_name, feedback_json
+            from chat_turns
+            where disliked = 1
+            order by feedback_created_at desc, created_at desc
+            limit ?
+            """,
+            (limit,),
+        ).fetchall()
+        items = []
+        for row in rows:
+            item = dict(row)
+            try:
+                item["feedback"] = json.loads(item.get("feedback_json") or "{}")
+            except json.JSONDecodeError:
+                item["feedback"] = {"raw": item.get("feedback_json")}
+            items.append(item)
+        return items
     finally:
         con.close()
 
@@ -1950,6 +2156,26 @@ def trace_page(trace_id: str):
         raw_trace=json.dumps(payload, indent=2, ensure_ascii=False, default=str),
         render_json=render_trace_value,
     )
+
+
+@app.get("/feedback")
+def feedback_page():
+    return render_template_string(
+        FEEDBACK_HTML,
+        items=load_disliked_feedback(),
+        render_json=render_trace_value,
+    )
+
+
+@app.post("/feedback/dislike")
+def dislike_feedback():
+    trace_id = (request.json or {}).get("trace_id", "").strip()
+    if not trace_id:
+        return jsonify({"ok": False, "error": "trace_id is required."}), 400
+    diagnostic = save_dislike_feedback(trace_id)
+    if diagnostic is None:
+        return jsonify({"ok": False, "error": "Response not found."}), 404
+    return jsonify({"ok": True})
 
 
 @app.post("/chat")
