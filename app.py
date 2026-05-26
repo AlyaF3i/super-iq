@@ -79,6 +79,12 @@ HTML = """
     .tool:first-of-type { border-top: 0; }
     .tool strong { display: block; font-size: 13px; }
     .tool span { display: block; color: #52616b; font-size: 12px; line-height: 1.35; margin-top: 4px; }
+    .suggestions { display: flex; flex-direction: column; gap: 14px; margin-bottom: 18px; }
+    .suggestion-group { border-bottom: 1px solid #edf1f3; padding-bottom: 12px; }
+    .suggestion-group:last-child { border-bottom: 0; padding-bottom: 0; }
+    .suggestion-category { color: #52616b; font-size: 11px; font-weight: 800; letter-spacing: 0.04em; text-transform: uppercase; margin-bottom: 8px; }
+    .suggestion-button { display: block; width: 100%; border: 1px solid #d9e0e4; background: #f7faf9; color: #182026; border-radius: 6px; padding: 8px 9px; margin: 6px 0; text-align: left; font-size: 12px; font-weight: 600; line-height: 1.35; cursor: pointer; }
+    .suggestion-button:hover { border-color: #184d47; background: #eef3f1; }
     .small { color: #52616b; font-size: 12px; line-height: 1.45; }
     .nav { display: flex; gap: 12px; margin-top: 8px; }
     .nav a { color: #184d47; font-size: 13px; font-weight: 700; text-decoration: none; }
@@ -122,6 +128,27 @@ HTML = """
       </form>
     </section>
     <aside class="panel">
+      <h2>Suggested tests</h2>
+      <div class="suggestions">
+        <div class="suggestion-group">
+          <div class="suggestion-category">Agent blocks</div>
+          <button class="suggestion-button" type="button" data-prompt="What is the capital of France?">What is the capital of France?</button>
+          <button class="suggestion-button" type="button" data-prompt="Who is the president of the United States?">Who is the president of the United States?</button>
+          <button class="suggestion-button" type="button" data-prompt="What was the last match in the Premier League?">What was the last match in the Premier League?</button>
+        </div>
+        <div class="suggestion-group">
+          <div class="suggestion-category">Single tool calling</div>
+          <button class="suggestion-button" type="button" data-prompt="How many leads do we have?">How many leads do we have?</button>
+          <button class="suggestion-button" type="button" data-prompt="What is our total sales revenue?">What is our total sales revenue?</button>
+          <button class="suggestion-button" type="button" data-prompt="Show me overdue payments">Show me overdue payments</button>
+        </div>
+        <div class="suggestion-group">
+          <div class="suggestion-category">Multi tool</div>
+          <button class="suggestion-button" type="button" data-prompt="Analyze our sales pipeline and identify the weakest stage">Analyze our sales pipeline and identify the weakest stage</button>
+          <button class="suggestion-button" type="button" data-prompt="Compare leads by industry and tell me where we should focus">Compare leads by industry and tell me where we should focus</button>
+          <button class="suggestion-button" type="button" data-prompt="Identify our top performing accounts and their revenue contribution">Identify our top performing accounts and their revenue contribution</button>
+        </div>
+      </div>
       <h2>{{ sidebar_title }}</h2>
       <div id="tools" class="small">Loading...</div>
     </aside>
@@ -136,6 +163,13 @@ const statusEl = document.getElementById('status');
 const toolsEl = document.getElementById('tools');
 const sessionsEl = document.getElementById('sessions');
 const chatId = new URLSearchParams(window.location.search).get('chat') || '{{ chat_id }}';
+
+document.querySelectorAll('.suggestion-button').forEach((button) => {
+  button.addEventListener('click', () => {
+    promptBox.value = button.dataset.prompt || '';
+    promptBox.focus();
+  });
+});
 
 function addMessage(text, cls) {
   const div = document.createElement('div');
