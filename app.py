@@ -145,25 +145,25 @@ HTML = """
       </form>
     </section>
     <aside class="panel">
-      <h2>Suggested tests</h2>
+      <h2>أسئلة مقترحة</h2>
       <div class="suggestions">
         <div class="suggestion-group">
-          <div class="suggestion-category">Agent blocks</div>
-          <button class="suggestion-button" type="button" data-prompt="What is the capital of France?">What is the capital of France?</button>
-          <button class="suggestion-button" type="button" data-prompt="Who is the president of the United States?">Who is the president of the United States?</button>
-          <button class="suggestion-button" type="button" data-prompt="What was the last match in the Premier League?">What was the last match in the Premier League?</button>
+          <div class="suggestion-category">أسئلة يجب أن يرفضها الوكيل</div>
+          <button class="suggestion-button" type="button" data-prompt="ما عاصمة فرنسا؟">ما عاصمة فرنسا؟</button>
+          <button class="suggestion-button" type="button" data-prompt="من هو رئيس الولايات المتحدة؟">من هو رئيس الولايات المتحدة؟</button>
+          <button class="suggestion-button" type="button" data-prompt="ما آخر مباراة في الدوري الإنجليزي الممتاز؟">ما آخر مباراة في الدوري الإنجليزي الممتاز؟</button>
         </div>
         <div class="suggestion-group">
-          <div class="suggestion-category">Single tool calling</div>
-          <button class="suggestion-button" type="button" data-prompt="How many leads do we have?">How many leads do we have?</button>
-          <button class="suggestion-button" type="button" data-prompt="What is our total sales revenue?">What is our total sales revenue?</button>
-          <button class="suggestion-button" type="button" data-prompt="Show me overdue payments">Show me overdue payments</button>
+          <div class="suggestion-category">استدعاء أداة واحدة</div>
+          <button class="suggestion-button" type="button" data-prompt="كم عدد العملاء المحتملين لدينا؟">كم عدد العملاء المحتملين لدينا؟</button>
+          <button class="suggestion-button" type="button" data-prompt="ما إجمالي إيرادات المبيعات لدينا؟">ما إجمالي إيرادات المبيعات لدينا؟</button>
+          <button class="suggestion-button" type="button" data-prompt="اعرض لي المدفوعات المتأخرة">اعرض لي المدفوعات المتأخرة</button>
         </div>
         <div class="suggestion-group">
-          <div class="suggestion-category">Multi tool</div>
-          <button class="suggestion-button" type="button" data-prompt="Analyze our sales pipeline and identify the weakest stage">Analyze our sales pipeline and identify the weakest stage</button>
-          <button class="suggestion-button" type="button" data-prompt="Compare leads by industry and tell me where we should focus">Compare leads by industry and tell me where we should focus</button>
-          <button class="suggestion-button" type="button" data-prompt="Identify our top performing accounts and their revenue contribution">Identify our top performing accounts and their revenue contribution</button>
+          <div class="suggestion-category">استدعاءات متعددة</div>
+          <button class="suggestion-button" type="button" data-prompt="حلل مسار المبيعات وحدد أضعف مرحلة">حلل مسار المبيعات وحدد أضعف مرحلة</button>
+          <button class="suggestion-button" type="button" data-prompt="قارن العملاء المحتملين حسب القطاع وأخبرني أين يجب أن نركز">قارن العملاء المحتملين حسب القطاع وأخبرني أين يجب أن نركز</button>
+          <button class="suggestion-button" type="button" data-prompt="حدد أفضل الحسابات أداء ومساهمتها في الإيرادات">حدد أفضل الحسابات أداء ومساهمتها في الإيرادات</button>
         </div>
       </div>
     </aside>
