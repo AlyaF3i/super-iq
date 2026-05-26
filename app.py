@@ -68,7 +68,7 @@ HTML = """
     .shell { display: grid; grid-template-columns: 240px minmax(620px, 1fr) 340px; gap: 18px; align-items: start; }
     .panel { background: rgba(255, 255, 255, 0.96); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; box-shadow: 0 14px 36px rgba(7, 33, 54, 0.08); }
     #messages { height: 66vh; min-height: 460px; overflow: auto; padding: 20px; display: flex; flex-direction: column; gap: 12px; }
-    .msg { max-width: 86%; padding: 12px 14px; border-radius: 8px; white-space: pre-wrap; line-height: 1.45; font-size: 14px; }
+    .msg { max-width: 86%; padding: 12px 14px; border-radius: 8px; white-space: pre-wrap; line-height: 1.45; font-size: 14px; direction: auto; unicode-bidi: plaintext; }
     .user { align-self: flex-end; background: linear-gradient(135deg, #0a4f8f, #149ee7); color: white; }
     .assistant { align-self: flex-start; background: #edf7fc; color: #101c2e; border: 1px solid #d7eaf5; }
     .meta { align-self: flex-start; color: #52616b; font-size: 12px; padding: 0 2px; }
@@ -227,7 +227,7 @@ function renderMarkdown(text) {
       let rendered = escapeHtml(line)
         .replace(/\\*\\*(.+?)\\*\\*/g, '<strong>$1</strong>')
         .replace(/`([^`]+)`/g, '<code>$1</code>');
-      html += `<p>${rendered}</p>`;
+      html += `<p dir="auto">${rendered}</p>`;
     }
   }
   return html || escapeHtml(text);
@@ -1248,9 +1248,38 @@ def clarification_question_reason(user_message: str, schema: list[dict[str, Any]
 
 def unsupported_question_reason(user_message: str, schema: list[dict[str, Any]]) -> str | None:
     text = user_message.lower()
-    for term, reason in UNSUPPORTED_TERMS.items():
+    # Arabic unsupported terms
+    arabic_unsupported = {
+        'عاصمة': 'Geographic information is not available in the CRM schema.',
+        'رئيس الوزراء': 'Political information is not available in the CRM schema.',
+        'رئيس الدولة': 'Political information is not available in the CRM schema.',
+        'كرة القدم': 'Sports data is not available in the CRM schema.',
+        'مباراة': 'Sports data is not available in the CRM schema.',
+        'قصيدة': 'Creative writing is not available in the CRM schema.',
+        'نكتة': 'Entertainment is not available in the CRM schema.',
+        'اكتب لي': 'Creative writing is not available in the CRM schema.',
+        'من هو': 'General knowledge is not available in the CRM schema.',
+        'ما هي عاصمة': 'Geographic information is not available in the CRM schema.',
+    }
+    for term, reason in arabic_unsupported.items():
         if term in text:
             return reason
+
+    # Arabic domain terms - if no arabic business term found, block it
+    arabic_business_terms = {
+        'عميل', 'عملاء', 'صفقة', 'صفقات', 'حساب', 'فاتورة', 'طلب',
+        'منتج', 'مبيعات', 'إيراد', 'مجموع', 'متوسط', 'تحليل', 'حلل',
+        'مدفوعات', 'متأخرة', 'فواتير', 'مستحقة', 'دفع', 'سداد','قارن', 'أعلى', 'أقل', 'خط', 'مراحل', 'عروض', 'توقع'
+    }
+    # Check if Arabic text has no business terms
+    arabic_chars = bool(re.search(r'[\u0600-\u06FF]', text))
+    if arabic_chars:
+        tokens = set(re.findall(r'[\u0600-\u06FF]{2,}', text))
+        if tokens and not any(term in text for term in arabic_business_terms):
+            return "This question is not related to CRM business data."
+        for term, reason in UNSUPPORTED_TERMS.items():
+            if term in text:
+                return reason
 
     schema_terms = set(DOMAIN_TERMS)
     for table in schema:
@@ -1312,14 +1341,11 @@ def aggregate_in_group_by(sql: str) -> bool:
 
 def choose_local_sql(user_message: str, schema: list[dict[str, Any]], previous_error: str | None = None) -> str:
     text = user_message.lower()
-    def choose_local_sql(user_message: str, schema: list[dict[str, Any]], previous_error: str | None = None) -> str:
-        text = user_message.lower()
     
     # Deterministic overrides
-    if any(w in text for w in ['overdue', 'overdue payment', 'overdue invoice']):
+    if any(w in text for w in ['overdue', 'overdue payment', 'overdue invoice', 'المتأخرة', 'متأخر', 'المتأخر', 'مدفوعات متأخرة', 'فواتير متأخرة']):
         return "SELECT Subject, Account_Name, Grand_Total, Due_Date, Invoice_Status FROM Invoices WHERE Due_Date < date('now') ORDER BY Due_Date ASC LIMIT 50"
 
-    table_names = {table["name"].lower(): table["name"] for table in schema}
     table_names = {table["name"].lower(): table["name"] for table in schema}
 
     for lower_name, table_name in table_names.items():
@@ -1450,6 +1476,18 @@ def wants_python_tool(user_message: str) -> bool:
             "recommend",
             "recommendation",
             "تحليل",
+            "إجمالي",
+            "إيرادات",
+            "مبيعات",
+            "متوسط",
+            "مجموع",
+            "أعلى",
+            "أقل",
+            "حسب",
+            "قطاع",
+            "مرحلة",
+            "عدد",
+            "كم",
             "حلل", 
             "قارن",
             "أعلى",
@@ -1457,7 +1495,14 @@ def wants_python_tool(user_message: str) -> bool:
             "متوسط",
             "مجموع",
             "توزيع",
-            "مقارنة",
+            "اتجاه",
+            "أداء",
+            "تقرير",
+            "ملخص",
+            "خط المبيعات",
+            "أفضل",
+            "أسوأ",
+            "نسبة",
         ]
     )
 
