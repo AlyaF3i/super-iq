@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any
 
 import requests
-from flask import Flask, jsonify, redirect, render_template_string, request
+from flask import Flask, jsonify, redirect, render_template, request
 
 
 APP_DIR = Path(__file__).resolve().parent
@@ -44,560 +44,9 @@ DATA_SOURCE = ENV.get("DATA_SOURCE", "local").lower()
 app = Flask(__name__)
 
 
-HTML = """
-<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{{ title }}</title>
-  <style>
-    :root { color-scheme: light; font-family: Inter, Segoe UI, Arial, sans-serif; --navy: #061427; --blue: #149ee7; --cyan: #2fd3ff; --ink: #101c2e; --line: #d7e5ee; --soft: #f3f8fb; }
-    body { margin: 0; background: linear-gradient(180deg, #eef7fc 0%, #f7fbfe 46%, #edf4f8 100%); color: var(--ink); }
-    .topbar { position: relative; overflow: hidden; background: radial-gradient(circle at 56% 0%, rgba(47, 211, 255, 0.22), transparent 34%), linear-gradient(135deg, #020915 0%, #061427 54%, #0a2742 100%); color: white; border-bottom: 4px solid var(--blue); }
-    .topbar::after { content: ""; position: absolute; inset: 0; background: repeating-linear-gradient(135deg, transparent 0 18px, rgba(47, 211, 255, 0.72) 18px 26px, transparent 26px 44px); width: 190px; left: auto; opacity: 0.85; }
-    .topbar-inner { position: relative; z-index: 1; max-width: 1320px; margin: 0 auto; padding: 16px 28px 20px; display: grid; grid-template-columns: 210px auto minmax(0, 1fr); gap: 24px; align-items: center; }
-    .brand { font-weight: 900; font-size: 24px; line-height: 1; letter-spacing: 0; }
-    .brand span { color: var(--cyan); }
-    .hero-title { font-size: 28px; font-weight: 800; line-height: 1.16; text-shadow: 0 2px 8px rgba(0, 0, 0, 0.36); }
-    .hero-title span { color: var(--cyan); }
-    .status { font-size: 13px; color: #52616b; text-align: right; white-space: nowrap; }
-    main { max-width: 1320px; margin: 0 auto; padding: 24px 28px 32px; }
-    header { display: flex; justify-content: space-between; gap: 18px; align-items: center; margin-bottom: 18px; }
-    h1 { font-size: 22px; line-height: 1.2; margin: 0; }
-    .shell { display: grid; grid-template-columns: 240px minmax(620px, 1fr) 340px; gap: 18px; align-items: start; }
-    .panel { background: rgba(255, 255, 255, 0.96); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; box-shadow: 0 14px 36px rgba(7, 33, 54, 0.08); }
-    #messages { height: 66vh; min-height: 460px; overflow: auto; padding: 20px; display: flex; flex-direction: column; gap: 12px; }
-    .msg { max-width: 86%; padding: 12px 14px; border-radius: 8px; white-space: pre-wrap; line-height: 1.45; font-size: 14px; direction: auto; unicode-bidi: plaintext; }
-    .user { align-self: flex-end; background: linear-gradient(135deg, #0a4f8f, #149ee7); color: white; }
-    .assistant { align-self: flex-start; background: #edf7fc; color: #101c2e; border: 1px solid #d7eaf5; }
-    .meta { align-self: flex-start; color: #52616b; font-size: 12px; padding: 0 2px; }
-    .trace { align-self: flex-start; max-width: 92%; font-size: 12px; color: #334149; }
-    .trace a { color: #0a76ba; font-weight: 700; text-decoration: none; }
-    .feedback-button { border: 1px solid #c8d9e4; background: white; color: #52616b; border-radius: 999px; padding: 4px 9px; margin-left: 10px; font-size: 12px; font-weight: 800; line-height: 1; vertical-align: middle; }
-    .feedback-button:hover { border-color: #0b83cc; color: #0b83cc; }
-    .feedback-button:disabled { background: #edf3f7; color: #7d8b94; cursor: default; }
-    .trace summary { cursor: pointer; color: #0a76ba; font-weight: 700; }
-    .trace pre { background: #182026; color: #f5f7f8; padding: 12px; border-radius: 6px; overflow: auto; max-height: 360px; }
-    form { display: flex; border-top: 1px solid var(--line); }
-    textarea { flex: 1; border: 0; resize: vertical; min-height: 58px; max-height: 180px; padding: 14px; font: inherit; outline: none; }
-    button { border: 0; background: #0b83cc; color: white; padding: 0 22px; font-weight: 700; cursor: pointer; }
-    button:disabled { background: #9ba8ae; cursor: wait; }
-    aside { padding: 16px; }
-    h2 { font-size: 15px; margin: 0 0 12px; }
-    .tool { border-top: 1px solid #edf1f3; padding: 10px 0; }
-    .tool:first-of-type { border-top: 0; }
-    .tool strong { display: block; font-size: 13px; }
-    .tool span { display: block; color: #52616b; font-size: 12px; line-height: 1.35; margin-top: 4px; }
-    .suggestions { display: flex; flex-direction: column; gap: 14px; margin-bottom: 18px; }
-    .suggestion-group { border-bottom: 1px solid #edf1f3; padding-bottom: 12px; }
-    .suggestion-group:last-child { border-bottom: 0; padding-bottom: 0; }
-    .suggestion-category { color: #52616b; font-size: 11px; font-weight: 800; letter-spacing: 0.04em; text-transform: uppercase; margin-bottom: 8px; }
-    .suggestion-button { display: block; width: 100%; border: 1px solid #d7eaf5; background: #f3f9fd; color: #101c2e; border-radius: 6px; padding: 9px 10px; margin: 6px 0; text-align: left; font-size: 12px; font-weight: 700; line-height: 1.35; cursor: pointer; }
-    .suggestion-button:hover { border-color: #149ee7; background: #e7f5fd; }
-    .small { color: #52616b; font-size: 12px; line-height: 1.45; }
-    .nav { display: flex; gap: 10px; margin-top: 0; justify-content: flex-start; }
-    .nav a { color: white; font-size: 15px; font-weight: 800; text-decoration: none; padding: 10px 15px; border: 1px solid rgba(47, 211, 255, 0.45); border-radius: 6px; background: rgba(20, 158, 231, 0.18); }
-    .nav a:hover { background: rgba(47, 211, 255, 0.28); }
-    .msg table, .data-table { border-collapse: collapse; width: 100%; margin-top: 8px; font-size: 13px; }
-    .msg th, .msg td, .data-table th, .data-table td { border: 1px solid #ccd6da; padding: 7px 8px; text-align: left; vertical-align: top; }
-    .msg th, .data-table th { background: #dde8e5; color: #182026; }
-    .msg code { background: #dce7e4; padding: 1px 4px; border-radius: 4px; }
-    .data-controls { display: flex; gap: 10px; align-items: center; margin: 16px 0; flex-wrap: wrap; }
-    .session-list { display: flex; flex-direction: column; gap: 8px; }
-    .session-list a { color: #0b4771; text-decoration: none; font-size: 13px; padding: 8px; border-radius: 6px; background: #edf7fc; }
-    .session-list a.active { background: #0b4771; color: white; }
-    .new-chat { display: block; text-align: center; background: #0b83cc; color: white; text-decoration: none; padding: 9px 10px; border-radius: 6px; font-weight: 700; margin-bottom: 12px; }
-    select, input { border: 1px solid #c9d3d7; border-radius: 6px; padding: 8px 10px; font: inherit; background: white; }
-    .table-wrap { overflow: auto; max-height: 68vh; border: 1px solid #d9e0e4; border-radius: 8px; background: white; }
-    @media (max-width: 1040px) { .topbar-inner { grid-template-columns: 1fr; gap: 12px; } main { padding: 16px; } .shell { grid-template-columns: 1fr; } #messages { height: 58vh; } header { display: block; } .status { text-align: left; } .nav { flex-wrap: wrap; } }
-  </style>
-</head>
-<body>
-<div class="topbar">
-  <div class="topbar-inner">
-    <div class="brand">Cyber<span>|</span>Gate</div>
-    <nav class="nav"><a href="/">Chat</a><a href="/data">Data</a></nav>
-    <div class="hero-title">Local CRM <span>Intelligence</span> Console</div>
-  </div>
-</div>
-<main>
-  <header>
-    <div>
-      <h1>{{ title }}</h1>
-      <div class="small">Ollama model: {{ model }} | Source: {{ data_source }}</div>
-    </div>
-    <div class="status" id="status">Local CRM ready</div>
-  </header>
-  <div class="shell">
-    <aside class="panel">
-      <a class="new-chat" href="/new-chat">New chat</a>
-      <h2>Chats</h2>
-      <div id="sessions" class="session-list small">Loading...</div>
-    </aside>
-    <section class="panel">
-      <div id="messages">
-        <div class="msg assistant">{{ intro }}</div>
-      </div>
-      <form id="chatForm">
-        <textarea id="prompt" placeholder="{{ placeholder }}" required></textarea>
-        <button id="send" type="submit">Send</button>
-      </form>
-    </section>
-    <aside class="panel">
-      <h2>أسئلة مقترحة</h2>
-      <div class="suggestions">
-        <div class="suggestion-group">
-          <div class="suggestion-category">أسئلة يجب أن يرفضها الوكيل</div>
-          <button class="suggestion-button" type="button" data-prompt="ما عاصمة فرنسا؟">ما عاصمة فرنسا؟</button>
-          <button class="suggestion-button" type="button" data-prompt="من هو رئيس الولايات المتحدة؟">من هو رئيس الولايات المتحدة؟</button>
-          <button class="suggestion-button" type="button" data-prompt="ما آخر مباراة في الدوري الإنجليزي الممتاز؟">ما آخر مباراة في الدوري الإنجليزي الممتاز؟</button>
-        </div>
-        <div class="suggestion-group">
-          <div class="suggestion-category">استدعاء أداة واحدة</div>
-          <button class="suggestion-button" type="button" data-prompt="كم عدد العملاء المحتملين لدينا؟">كم عدد العملاء المحتملين لدينا؟</button>
-          <button class="suggestion-button" type="button" data-prompt="ما إجمالي إيرادات المبيعات لدينا؟">ما إجمالي إيرادات المبيعات لدينا؟</button>
-          <button class="suggestion-button" type="button" data-prompt="اعرض لي المدفوعات المتأخرة">اعرض لي المدفوعات المتأخرة</button>
-        </div>
-        <div class="suggestion-group">
-          <div class="suggestion-category">استدعاءات متعددة</div>
-          <button class="suggestion-button" type="button" data-prompt="حلل مسار المبيعات وحدد أضعف مرحلة">حلل مسار المبيعات وحدد أضعف مرحلة</button>
-          <button class="suggestion-button" type="button" data-prompt="قارن العملاء المحتملين حسب القطاع وأخبرني أين يجب أن نركز">قارن العملاء المحتملين حسب القطاع وأخبرني أين يجب أن نركز</button>
-          <button class="suggestion-button" type="button" data-prompt="حدد أفضل الحسابات أداء ومساهمتها في الإيرادات">حدد أفضل الحسابات أداء ومساهمتها في الإيرادات</button>
-        </div>
-      </div>
-    </aside>
-  </div>
-</main>
-<script>
-const messages = document.getElementById('messages');
-const form = document.getElementById('chatForm');
-const promptBox = document.getElementById('prompt');
-const send = document.getElementById('send');
-const statusEl = document.getElementById('status');
-const sessionsEl = document.getElementById('sessions');
-const chatId = new URLSearchParams(window.location.search).get('chat') || '{{ chat_id }}';
 
-document.querySelectorAll('.suggestion-button').forEach((button) => {
-  button.addEventListener('click', () => {
-    promptBox.value = button.dataset.prompt || '';
-    promptBox.focus();
-  });
-});
 
-function addMessage(text, cls) {
-  const div = document.createElement('div');
-  div.className = 'msg ' + cls;
-  if (cls === 'assistant') {
-    div.innerHTML = renderMarkdown(text);
-  } else {
-    div.textContent = text;
-  }
-  messages.appendChild(div);
-  messages.scrollTop = messages.scrollHeight;
-}
 
-function escapeHtml(text) {
-  return String(text)
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;')
-    .replaceAll("'", '&#039;');
-}
-
-function renderMarkdown(text) {
-  const lines = String(text).trim().split(/\\r?\\n/);
-  let html = '';
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-    if (line.trim().startsWith('|') && lines[i + 1] && /^\\s*\\|?\\s*:?-{3,}:?/.test(lines[i + 1])) {
-      const headers = line.split('|').slice(1, -1).map(c => c.trim());
-      i += 2;
-      const rows = [];
-      while (i < lines.length && lines[i].trim().startsWith('|')) {
-        rows.push(lines[i].split('|').slice(1, -1).map(c => c.trim()));
-        i++;
-      }
-      i--;
-      html += '<table><thead><tr>' + headers.map(h => `<th>${escapeHtml(h)}</th>`).join('') + '</tr></thead><tbody>';
-      html += rows.map(row => '<tr>' + row.map(c => `<td>${escapeHtml(c)}</td>`).join('') + '</tr>').join('');
-      html += '</tbody></table>';
-    } else if (line.trim()) {
-      let rendered = escapeHtml(line)
-        .replace(/\\*\\*(.+?)\\*\\*/g, '<strong>$1</strong>')
-        .replace(/`([^`]+)`/g, '<code>$1</code>');
-      html += `<p dir="auto">${rendered}</p>`;
-    }
-  }
-  return html || escapeHtml(text);
-}
-
-function addMeta(text) {
-  const div = document.createElement('div');
-  div.className = 'meta';
-  div.textContent = text;
-  messages.appendChild(div);
-  messages.scrollTop = messages.scrollHeight;
-}
-
-function addTrace(traceId, disliked = false) {
-  if (!traceId) return;
-  const box = document.createElement('div');
-  box.className = 'trace';
-  box.innerHTML = `<a href="/trace-page/${traceId}" target="_blank" rel="noopener">Response details</a><button class="feedback-button" type="button" data-trace="${traceId}" ${disliked ? 'disabled' : ''}>${disliked ? 'Disliked' : 'Dislike'}</button>`;
-  messages.appendChild(box);
-  messages.scrollTop = messages.scrollHeight;
-}
-
-function renderTurn(turn) {
-  addMessage(turn.user_message, 'user');
-  if (turn.tool_name) addMeta(`Tool used: ${turn.tool_name}`);
-  addMessage(turn.answer, 'assistant');
-  addTrace(turn.trace_id, Boolean(turn.disliked));
-}
-
-async function loadTools() {
-  const res = await fetch('/tools');
-  const data = await res.json();
-  if (!data.ok) {
-    statusEl.textContent = data.error;
-    return;
-  }
-  statusEl.textContent = `${data.tools.length} tools loaded`;
-}
-
-async function loadSessions() {
-  const res = await fetch('/sessions');
-  const data = await res.json();
-  if (!data.ok) {
-    sessionsEl.textContent = data.error;
-    return;
-  }
-  sessionsEl.innerHTML = data.sessions.map(s => {
-    const active = s.id === chatId ? ' active' : '';
-    return `<a class="${active}" href="/?chat=${encodeURIComponent(s.id)}">${escapeHtml(s.title || 'Untitled chat')}<br><span>${escapeHtml(s.updated_at || '')}</span></a>`;
-  }).join('');
-}
-
-async function loadHistory() {
-  const res = await fetch(`/history?chat=${encodeURIComponent(chatId)}`);
-  const data = await res.json();
-  if (!data.ok || !data.turns.length) return;
-  messages.innerHTML = '';
-  data.turns.forEach(renderTurn);
-}
-
-form.addEventListener('submit', async (event) => {
-  event.preventDefault();
-  const text = promptBox.value.trim();
-  if (!text) return;
-  promptBox.value = '';
-  send.disabled = true;
-  addMessage(text, 'user');
-  addMeta('Thinking...');
-  try {
-    const res = await fetch('/chat', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({message: text, chat_id: chatId})
-    });
-    const data = await res.json();
-    messages.lastChild.remove();
-    if (!data.ok) {
-      addMessage(data.error, 'assistant');
-    } else {
-      if (data.tool_name) addMeta(`Tool used: ${data.tool_name}`);
-      addMessage(data.answer, 'assistant');
-      addTrace(data.trace_id, false);
-      loadSessions();
-    }
-  } catch (err) {
-    messages.lastChild.remove();
-    addMessage(String(err), 'assistant');
-  } finally {
-    send.disabled = false;
-    promptBox.focus();
-  }
-});
-
-messages.addEventListener('click', async (event) => {
-  const button = event.target.closest('.feedback-button');
-  if (!button || button.disabled) return;
-  const traceId = button.dataset.trace;
-  button.disabled = true;
-  button.textContent = 'Saving...';
-  try {
-    const res = await fetch('/feedback/dislike', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({trace_id: traceId})
-    });
-    const data = await res.json();
-    button.textContent = data.ok ? 'Disliked' : 'Retry';
-    button.disabled = Boolean(data.ok);
-  } catch (err) {
-    button.textContent = 'Retry';
-    button.disabled = false;
-  }
-});
-
-loadSessions();
-loadHistory();
-</script>
-</body>
-</html>
-"""
-
-DATA_HTML = """
-<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Local CRM Data</title>
-  <style>
-    :root { color-scheme: light; font-family: Inter, Segoe UI, Arial, sans-serif; --navy: #061427; --blue: #149ee7; --cyan: #2fd3ff; --ink: #101c2e; --line: #d7e5ee; }
-    body { margin: 0; background: linear-gradient(180deg, #eef7fc 0%, #f7fbfe 46%, #edf4f8 100%); color: var(--ink); }
-    .topbar { position: relative; overflow: hidden; background: radial-gradient(circle at 56% 0%, rgba(47, 211, 255, 0.22), transparent 34%), linear-gradient(135deg, #020915 0%, #061427 54%, #0a2742 100%); color: white; border-bottom: 4px solid var(--blue); }
-    .topbar::after { content: ""; position: absolute; inset: 0; background: repeating-linear-gradient(135deg, transparent 0 18px, rgba(47, 211, 255, 0.72) 18px 26px, transparent 26px 44px); width: 190px; left: auto; opacity: 0.85; }
-    .topbar-inner { position: relative; z-index: 1; max-width: 1320px; margin: 0 auto; padding: 16px 28px 20px; display: grid; grid-template-columns: 210px auto minmax(0, 1fr); gap: 24px; align-items: center; }
-    .brand { font-weight: 900; font-size: 24px; line-height: 1; }
-    .brand span, .hero-title span { color: var(--cyan); }
-    .hero-title { font-size: 28px; font-weight: 800; line-height: 1.16; text-shadow: 0 2px 8px rgba(0, 0, 0, 0.36); }
-    main { max-width: 1320px; margin: 0 auto; padding: 24px 28px 32px; }
-    header { display: flex; justify-content: space-between; gap: 18px; align-items: flex-start; margin-bottom: 18px; }
-    h1 { font-size: 24px; margin: 0; }
-    .small { color: #52616b; font-size: 12px; line-height: 1.45; }
-    .nav { display: flex; gap: 10px; margin-top: 0; justify-content: flex-start; }
-    .nav a { color: white; font-size: 15px; font-weight: 800; text-decoration: none; padding: 10px 15px; border: 1px solid rgba(47, 211, 255, 0.45); border-radius: 6px; background: rgba(20, 158, 231, 0.18); }
-    .nav a:hover { background: rgba(47, 211, 255, 0.28); }
-    .panel { background: rgba(255, 255, 255, 0.96); border: 1px solid var(--line); border-radius: 8px; padding: 16px; box-shadow: 0 14px 36px rgba(7, 33, 54, 0.08); }
-    .data-controls { display: flex; gap: 10px; align-items: center; margin-bottom: 16px; flex-wrap: wrap; }
-    select, input, button { border: 1px solid #c9d3d7; border-radius: 6px; padding: 8px 10px; font: inherit; background: white; }
-    button { background: #0b83cc; color: white; border-color: #0b83cc; cursor: pointer; font-weight: 700; }
-    .table-wrap { overflow: auto; max-height: 68vh; border: 1px solid #d9e0e4; border-radius: 8px; background: white; }
-    table { border-collapse: collapse; width: 100%; font-size: 13px; }
-    th, td { border-bottom: 1px solid #e5ecef; border-right: 1px solid #edf1f3; padding: 7px 8px; text-align: left; vertical-align: top; white-space: nowrap; }
-    th { background: #dff1fb; position: sticky; top: 0; z-index: 1; }
-    td { max-width: 320px; overflow: hidden; text-overflow: ellipsis; }
-    .status { margin: 10px 0; color: #52616b; font-size: 13px; }
-    @media (max-width: 1040px) { .topbar-inner { grid-template-columns: 1fr; gap: 12px; } main { padding: 16px; } .nav { flex-wrap: wrap; } }
-  </style>
-</head>
-<body>
-<div class="topbar">
-  <div class="topbar-inner">
-    <div class="brand">Cyber<span>|</span>Gate</div>
-    <nav class="nav"><a href="/">Chat</a><a href="/data">Data</a></nav>
-    <div class="hero-title">Local CRM <span>Data</span> Viewer</div>
-  </div>
-</div>
-<main>
-  <header>
-    <div>
-      <h1>Local CRM Data</h1>
-      <div class="small">SQLite: {{ db_path }}</div>
-    </div>
-  </header>
-  <section class="panel">
-    <div class="data-controls">
-      <label>Table <select id="tableSelect"></select></label>
-      <label>Limit <input id="limitInput" type="number" min="1" max="200" value="50"></label>
-      <label>Offset <input id="offsetInput" type="number" min="0" value="0"></label>
-      <button id="loadButton">Load</button>
-    </div>
-    <div id="status" class="status">Loading...</div>
-    <div class="table-wrap"><table id="dataTable"></table></div>
-  </section>
-</main>
-<script>
-const tableSelect = document.getElementById('tableSelect');
-const limitInput = document.getElementById('limitInput');
-const offsetInput = document.getElementById('offsetInput');
-const loadButton = document.getElementById('loadButton');
-const statusEl = document.getElementById('status');
-const dataTable = document.getElementById('dataTable');
-
-function escapeHtml(text) {
-  return String(text ?? '')
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;')
-    .replaceAll("'", '&#039;');
-}
-
-async function init() {
-  const res = await fetch('/data/tables');
-  const data = await res.json();
-  tableSelect.innerHTML = data.tables.map(t => `<option value="${escapeHtml(t.name)}">${escapeHtml(t.name)} (${t.row_count})</option>`).join('');
-  await loadData();
-}
-
-async function loadData() {
-  const table = tableSelect.value;
-  const limit = limitInput.value;
-  const offset = offsetInput.value;
-  statusEl.textContent = 'Loading...';
-  const res = await fetch(`/data/rows?table=${encodeURIComponent(table)}&limit=${encodeURIComponent(limit)}&offset=${encodeURIComponent(offset)}`);
-  const data = await res.json();
-  if (!data.ok) {
-    statusEl.textContent = data.error;
-    dataTable.innerHTML = '';
-    return;
-  }
-  statusEl.textContent = `${data.table}: showing ${data.rows.length} of ${data.total_rows} rows`;
-  dataTable.innerHTML = '<thead><tr>' + data.columns.map(c => `<th>${escapeHtml(c)}</th>`).join('') + '</tr></thead>' +
-    '<tbody>' + data.rows.map(row => '<tr>' + data.columns.map(c => `<td title="${escapeHtml(row[c])}">${escapeHtml(row[c])}</td>`).join('') + '</tr>').join('') + '</tbody>';
-}
-
-loadButton.addEventListener('click', loadData);
-tableSelect.addEventListener('change', () => { offsetInput.value = 0; loadData(); });
-init();
-</script>
-</body>
-</html>
-"""
-
-TRACE_HTML = """
-<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Response Trace</title>
-  <style>
-    :root { color-scheme: light; font-family: Inter, Segoe UI, Arial, sans-serif; }
-    body { margin: 0; background: #f5f7f8; color: #182026; }
-    main { max-width: 1120px; margin: 0 auto; padding: 28px; }
-    header { display: flex; justify-content: space-between; gap: 18px; align-items: flex-start; margin-bottom: 18px; }
-    h1 { font-size: 24px; margin: 0; }
-    h2 { font-size: 16px; margin: 0 0 10px; }
-    h3 { font-size: 14px; margin: 0 0 8px; color: #184d47; }
-    .small { color: #52616b; font-size: 12px; line-height: 1.45; }
-    .nav { display: flex; gap: 12px; margin-top: 8px; }
-    .nav a { color: #184d47; font-size: 13px; font-weight: 700; text-decoration: none; }
-    .summary { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin-bottom: 16px; }
-    .metric, .step, .panel { background: #fff; border: 1px solid #d9e0e4; border-radius: 8px; padding: 14px; }
-    .metric strong { display: block; font-size: 18px; margin-top: 4px; }
-    .steps { display: grid; gap: 12px; }
-    .step-head { display: flex; justify-content: space-between; gap: 12px; align-items: baseline; border-bottom: 1px solid #edf1f3; padding-bottom: 8px; margin-bottom: 10px; }
-    .badge { background: #dde8e5; color: #184d47; border-radius: 999px; padding: 3px 8px; font-size: 12px; font-weight: 700; }
-    pre { background: #182026; color: #f5f7f8; padding: 12px; border-radius: 6px; overflow: auto; max-height: 420px; white-space: pre-wrap; }
-    code { background: #dce7e4; padding: 1px 4px; border-radius: 4px; }
-    table { border-collapse: collapse; width: 100%; margin-top: 8px; font-size: 13px; }
-    th, td { border: 1px solid #ccd6da; padding: 7px 8px; text-align: left; vertical-align: top; }
-    th { background: #dde8e5; }
-    .kv { display: grid; grid-template-columns: 160px minmax(0, 1fr); gap: 8px; font-size: 13px; margin: 6px 0; }
-    .error { border-color: #d7836b; background: #fff7f4; }
-    @media (max-width: 860px) { main { padding: 16px; } .summary { grid-template-columns: 1fr 1fr; } .kv { grid-template-columns: 1fr; } }
-  </style>
-</head>
-<body>
-<main>
-  <header>
-    <div>
-      <h1>Response Trace</h1>
-      <div class="small">Trace ID: {{ trace_id }}</div>
-      <nav class="nav"><a href="/">Chat</a><a href="/data">Data</a></nav>
-    </div>
-  </header>
-
-  <section class="summary">
-    <div class="metric"><span class="small">Tool</span><strong>{{ trace.get("tool_name") or "none" }}</strong></div>
-    <div class="metric"><span class="small">Steps</span><strong>{{ steps|length }}</strong></div>
-    <div class="metric"><span class="small">Total</span><strong>{{ timings.get("total", "n/a") }} ms</strong></div>
-    <div class="metric"><span class="small">Execution</span><strong>{{ timings.get("python_execution", timings.get("sql_execution", "n/a")) }} ms</strong></div>
-  </section>
-
-  <section class="panel">
-    <h2>Question</h2>
-    <p>{{ question }}</p>
-  </section>
-
-  <section class="steps" style="margin-top: 16px;">
-    {% for step in steps %}
-    <article class="step {% if step.get('error') %}error{% endif %}">
-      <div class="step-head">
-        <h3>{{ loop.index }}. {{ step.get("name", "step") }}</h3>
-        {% if step.get("duration_ms") is not none %}<span class="badge">{{ step.get("duration_ms") }} ms</span>{% endif %}
-      </div>
-      {% if step.get("tool") %}<div class="kv"><strong>Tool</strong><span>{{ step.get("tool") }}</span></div>{% endif %}
-      {% if step.get("reason") %}<div class="kv"><strong>Reason</strong><span>{{ step.get("reason") }}</span></div>{% endif %}
-      {% if step.get("source") %}<div class="kv"><strong>Source</strong><span>{{ step.get("source") }}</span></div>{% endif %}
-      {% if step.get("error") %}<h3>Error</h3><pre>{{ step.get("error") }}</pre>{% endif %}
-      {% if step.get("input") %}<h3>Input</h3>{{ render_json(step.get("input"))|safe }}{% endif %}
-      {% if step.get("output") %}<h3>Output</h3>{{ render_json(step.get("output"))|safe }}{% endif %}
-    </article>
-    {% endfor %}
-  </section>
-
-  <section class="panel" style="margin-top: 16px;">
-    <h2>Raw Trace</h2>
-    <pre>{{ raw_trace }}</pre>
-  </section>
-</main>
-</body>
-</html>
-"""
-
-FEEDBACK_HTML = """
-<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Disliked Responses</title>
-  <style>
-    :root { color-scheme: light; font-family: Inter, Segoe UI, Arial, sans-serif; --navy: #061427; --blue: #149ee7; --cyan: #2fd3ff; --ink: #101c2e; --line: #d7e5ee; }
-    body { margin: 0; background: #f3f8fb; color: var(--ink); }
-    main { max-width: 1180px; margin: 0 auto; padding: 28px; }
-    header { display: flex; justify-content: space-between; gap: 18px; align-items: flex-start; margin-bottom: 18px; }
-    h1 { font-size: 24px; margin: 0; }
-    h2 { font-size: 16px; margin: 0 0 10px; }
-    .small { color: #52616b; font-size: 12px; line-height: 1.45; }
-    .nav { display: flex; gap: 12px; margin-top: 8px; }
-    .nav a { color: #0a76ba; font-size: 13px; font-weight: 800; text-decoration: none; }
-    .items { display: grid; gap: 14px; }
-    .item { background: white; border: 1px solid var(--line); border-radius: 8px; padding: 16px; box-shadow: 0 10px 26px rgba(7, 33, 54, 0.06); }
-    .grid { display: grid; grid-template-columns: 160px minmax(0, 1fr); gap: 8px; font-size: 13px; margin: 8px 0; }
-    pre { background: #061427; color: #f5fbff; padding: 12px; border-radius: 6px; overflow: auto; max-height: 360px; white-space: pre-wrap; }
-    table { border-collapse: collapse; width: 100%; margin-top: 8px; font-size: 13px; }
-    th, td { border: 1px solid #ccd6da; padding: 7px 8px; text-align: left; vertical-align: top; }
-    th { background: #dff1fb; }
-  </style>
-</head>
-<body>
-<main>
-  <header>
-    <div>
-      <h1>Disliked Responses</h1>
-      <div class="small">Hidden model diagnostics for responses users marked as not good enough.</div>
-      <nav class="nav"><a href="/">Chat</a><a href="/data">Data</a></nav>
-    </div>
-  </header>
-  <section class="items">
-    {% if not items %}
-      <article class="item"><p>No disliked responses yet.</p></article>
-    {% endif %}
-    {% for item in items %}
-      <article class="item">
-        <h2>{{ item.user_message }}</h2>
-        <div class="grid"><strong>Disliked at</strong><span>{{ item.feedback_created_at }}</span></div>
-        <div class="grid"><strong>Tool</strong><span>{{ item.tool_name or "none" }}</span></div>
-        <div class="grid"><strong>Trace</strong><span><a href="/trace-page/{{ item.id }}" target="_blank" rel="noopener">{{ item.id }}</a></span></div>
-        <h2>Answer</h2>
-        <pre>{{ item.answer }}</pre>
-        <h2>Hidden Diagnostic</h2>
-        {{ render_json(item.feedback)|safe }}
-      </article>
-    {% endfor %}
-  </section>
-</main>
-</body>
-</html>
-"""
 
 
 def init_history_db() -> None:
@@ -1027,12 +476,18 @@ def mcp_call_tool(name: str, arguments: dict[str, Any]) -> dict[str, Any]:
     return anyio.run(mcp_call_tool_async, name, arguments)
 
 
-def ollama_chat(messages: list[dict[str, str]], *, json_mode: bool = False) -> str:
+def ollama_chat_response(
+    messages: list[dict[str, Any]],
+    *,
+    json_mode: bool = False,
+    tools: list[dict[str, Any]] | None = None,
+    think: bool = False,
+) -> dict[str, Any]:
     payload: dict[str, Any] = {
         "model": OLLAMA_MODEL,
         "messages": messages,
         "stream": False,
-        "think": False,
+        "think": think,
         "options": {
             "temperature": 0.1,
             "num_predict": 900,
@@ -1040,9 +495,16 @@ def ollama_chat(messages: list[dict[str, str]], *, json_mode: bool = False) -> s
     }
     if json_mode:
         payload["format"] = "json"
+    if tools:
+        payload["tools"] = tools
     response = requests.post(f"{OLLAMA_URL}/api/chat", json=payload, timeout=300)
     response.raise_for_status()
-    return strip_thinking(response.json()["message"]["content"])
+    return response.json()
+
+
+def ollama_chat(messages: list[dict[str, str]], *, json_mode: bool = False) -> str:
+    message = ollama_chat_response(messages, json_mode=json_mode)["message"]
+    return strip_thinking(message.get("content") or "")
 
 
 def strip_thinking(text: str) -> str:
@@ -1105,6 +567,218 @@ def local_tools() -> list[dict[str, Any]]:
         }
     )
     return tools
+
+
+def local_function_tools() -> list[dict[str, Any]]:
+    return [
+        {
+            "type": "function",
+            "function": {
+                "name": "local_sql",
+                "description": (
+                    "Run one read-only SQLite SELECT query against the local CRM database. "
+                    "Use this for simple counts, totals, lists, and direct aggregations."
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "sql": {
+                            "type": "string",
+                            "description": (
+                                "A safe SQLite SELECT query using exact table and column names. "
+                                "Do not use INSERT, UPDATE, DELETE, DROP, ALTER, CREATE, PRAGMA, ATTACH, or VACUUM. "
+                                "GROUP BY may contain only raw non-aggregate columns. Include LIMIT 50 unless returning aggregate rows."
+                            ),
+                        }
+                    },
+                    "required": ["sql"],
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "python_analysis",
+                "description": (
+                    "Run read-only Python analysis with pandas or Polars against the local CRM SQLite database. "
+                    "Use this for multi-table analysis, ranking, recommendations, risk assessment, or complex comparisons."
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "code": {
+                            "type": "string",
+                            "description": (
+                                "Short Python code. DB_PATH is already defined. Set JSON-serializable variable result. "
+                                "Only use sqlite3, pandas as pd, polars as pl, json, math, statistics, datetime. "
+                                "No file writes, network calls, subprocess, os, mutation SQL, or database writes."
+                            ),
+                        }
+                    },
+                    "required": ["code"],
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "unsupported_question",
+                "description": "Use when the question is not answerable from local CRM business data.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "reason": {"type": "string", "description": "Concrete reason the local CRM data cannot answer this."}
+                    },
+                    "required": ["reason"],
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "clarification_needed",
+                "description": "Use when the user asks a CRM question but the required metric, entity, or scope is ambiguous.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "question": {"type": "string", "description": "The concise clarification question to ask the user."}
+                    },
+                    "required": ["question"],
+                },
+            },
+        },
+    ]
+
+
+def normalize_tool_call(tool_call: dict[str, Any]) -> tuple[str, dict[str, Any]]:
+    function = tool_call.get("function") or {}
+    name = function.get("name") or tool_call.get("name") or ""
+    arguments = function.get("arguments") or tool_call.get("arguments") or {}
+    if isinstance(arguments, str):
+        arguments = parse_json_object(arguments) if arguments.strip() else {}
+    if not isinstance(arguments, dict):
+        arguments = {}
+    return name, arguments
+
+
+def qwen_tool_prompt(tools: list[dict[str, Any]], extra_system: str) -> str:
+    rendered_tools = "\n".join(json.dumps(tool, ensure_ascii=False) for tool in tools)
+    return (
+        "# Tools\n\n"
+        "You have access to the following functions:\n\n"
+        "<tools>\n"
+        f"{rendered_tools}\n"
+        "</tools>\n\n"
+        "If you choose to call a function ONLY reply in the following format with NO suffix:\n\n"
+        "<tool_call>\n"
+        "<function=example_function_name>\n"
+        "<parameter=example_parameter_1>\n"
+        "value_1\n"
+        "</parameter>\n"
+        "</function>\n"
+        "</tool_call>\n\n"
+        "Function calls MUST follow the specified format: an inner <function=...></function> block "
+        "must be nested within <tool_call></tool_call> XML tags. Required parameters MUST be specified. "
+        "If there is no function call available, call unsupported_question or clarification_needed.\n\n"
+        f"{extra_system}"
+    )
+
+
+def compact_schema_prompt(schema: list[dict[str, Any]]) -> str:
+    important_tables = {
+        "Leads",
+        "Deals",
+        "Accounts",
+        "Invoices",
+        "Employees",
+        "Tasks",
+        "Calls",
+        "Activities",
+        "Campaigns",
+        "Products",
+        "Quotes",
+        "Sales_Orders",
+    }
+    lines = []
+    for table in schema:
+        if table["name"] not in important_tables:
+            continue
+        columns = ", ".join(column["name"] for column in table["columns"][:28])
+        lines.append(f'{table["name"]}: {columns}')
+    return "\n".join(lines)
+
+
+def parse_qwen_xml_tool_call(content: str) -> tuple[str, dict[str, Any]] | None:
+    match = re.search(
+        r"<tool_call>\s*<function=([A-Za-z_][A-Za-z0-9_]*)>\s*(.*?)\s*</function>\s*</tool_call>",
+        content,
+        flags=re.S,
+    )
+    if not match:
+        return None
+    name = match.group(1)
+    body = match.group(2)
+    arguments: dict[str, Any] = {}
+    for param, value in re.findall(
+        r"<parameter=([A-Za-z_][A-Za-z0-9_]*)>\s*(.*?)\s*</parameter>",
+        body,
+        flags=re.S,
+    ):
+        raw = value.strip()
+        if raw.startswith(("{", "[")):
+            try:
+                arguments[param] = json.loads(raw)
+                continue
+            except json.JSONDecodeError:
+                pass
+        arguments[param] = raw
+    return name, arguments
+
+
+def choose_local_native_tool_call(
+    user_message: str,
+    schema: list[dict[str, Any]],
+    previous_error: str | None = None,
+) -> tuple[str, dict[str, Any], dict[str, Any]]:
+    system = (
+        "You are a local CRM analytics agent. You must call exactly one provided tool. "
+        "Do not answer directly. Never summarize the schema. Use only exact table and column names from the schema. "
+        "If the user asks about politics, sports, geography, entertainment, weather, recipes, jokes, or anything outside local CRM data, "
+        "call unsupported_question. If the CRM request is ambiguous, call clarification_needed. "
+        "For simple counts/totals/lists use local_sql. For multi-step analysis, rankings, recommendations, risk, focus, or comparisons use python_analysis. "
+        "For overdue payments use Invoices where Due_Date < date('now'). For sales revenue use Deals.Amount. "
+        "For top accounts by revenue, use Accounts plus Deals via Account_Name when useful. "
+        "For industry focus, compare Leads or Accounts by Industry using available revenue/count fields. "
+        "Your whole response must be a single tool call."
+    )
+    tools = local_function_tools()
+    user_content = (
+        f"Question:\n{user_message}\n\n"
+        f"Available schema:\n{compact_schema_prompt(schema)}\n\n"
+        f"Previous error:\n{previous_error or 'none'}\n\n"
+        "Return exactly one function call now."
+    )
+    response = ollama_chat_response(
+        [
+            {"role": "system", "content": qwen_tool_prompt(tools, system)},
+            {"role": "user", "content": user_content},
+        ],
+        tools=tools,
+        think=OLLAMA_MODEL.lower().startswith("qwen"),
+    )
+    message = response.get("message") or {}
+    tool_calls = message.get("tool_calls") or []
+    if tool_calls:
+        name, arguments = normalize_tool_call(tool_calls[0])
+    else:
+        parsed = parse_qwen_xml_tool_call(message.get("content") or "")
+        if not parsed:
+            raise RuntimeError(f"Ollama did not return a native or Qwen-template tool call. Content: {message.get('content') or ''}")
+        name, arguments = parsed
+    valid_tools = {tool["function"]["name"] for tool in tools}
+    if name not in valid_tools:
+        raise RuntimeError(f"Ollama selected an unknown native tool: {name}")
+    return name, arguments, response
 
 
 def schema_prompt(schema: list[dict[str, Any]]) -> str:
@@ -1476,6 +1150,30 @@ def wants_python_tool(user_message: str) -> bool:
             "recommend",
             "recommendation",
             "تحليل",
+            "حلل",
+            "إجمالي",
+            "إيرادات",
+            "مبيعات",
+            "متوسط",
+            "مجموع",
+            "أعلى",
+            "أقل",
+            "حسب",
+            "قطاع",
+            "مرحلة",
+            "عدد",
+            "كم",
+            "قارن",
+            "توزيع",
+            "اتجاه",
+            "أداء",
+            "تقرير",
+            "ملخص",
+            "خط المبيعات",
+            "أفضل",
+            "أسوأ",
+            "نسبة",
+            "تحليل",
             "إجمالي",
             "إيرادات",
             "مبيعات",
@@ -1616,6 +1314,8 @@ print(json.dumps({{"result": clean(result)}}, ensure_ascii=False, default=str))
             cwd=APP_DIR,
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=30,
             check=False,
         )
@@ -1658,7 +1358,7 @@ def deterministic_python_analysis(user_message: str) -> str | None:
             "  .to_dict(orient='records'))"
         )
 
-    if any(token in text for token in ["risk", "risky", "sales operation", "focus next week", "workload"]):
+    if any(token in text for token in ["risk", "risky", "sales operation", "focus next week", "workload", "حلل", "مسار المبيعات", "أضعف", "مرحلة"]):
         return (
             "import sqlite3\n"
             "import pandas as pd\n"
@@ -1714,11 +1414,13 @@ def deterministic_python_analysis(user_message: str) -> str | None:
             "result = df.groupby('Stage').size().reset_index(name='count').sort_values('count', ascending=False).to_dict(orient='records')"
         )
 
-    if "lead" in text and "industry" in text and (
+    if ("lead" in text and "industry" in text or "العملاء المحتملين" in text and "القطاع" in text) and (
         "annual_revenue" in text
         or "annual revenue" in text
         or "employee count" in text
         or "employees" in text
+        or "القطاع" in text
+        or "نركز" in text
     ):
         return (
             "import sqlite3\n"
@@ -1739,6 +1441,20 @@ def deterministic_python_analysis(user_message: str) -> str | None:
             "con = sqlite3.connect(DB_PATH)\n"
             "df = pd.read_sql_query('select Industry from Leads', con)\n"
             "result = df.groupby('Industry').size().reset_index(name='count').sort_values('count', ascending=False).to_dict(orient='records')"
+        )
+
+    if "الحسابات" in text and any(token in text for token in ["أفضل", "أداء", "الإيرادات"]):
+        return (
+            "import sqlite3\n"
+            "import pandas as pd\n"
+            "con = sqlite3.connect(DB_PATH)\n"
+            "deals = pd.read_sql_query('select Account_Name, Amount, Stage, Probability from Deals', con)\n"
+            "deals['weighted_revenue'] = deals['Amount'] * deals['Probability'] / 100\n"
+            "result = (deals.groupby('Account_Name', as_index=False)\n"
+            "  .agg(deal_count=('Account_Name','size'), total_revenue=('Amount','sum'), weighted_revenue=('weighted_revenue','sum'), avg_probability=('Probability','mean'))\n"
+            "  .sort_values('total_revenue', ascending=False)\n"
+            "  .head(10)\n"
+            "  .to_dict(orient='records'))"
         )
 
     return None
@@ -2049,6 +1765,205 @@ def answer_from_local(user_message: str) -> dict[str, Any]:
     return {"answer": answer, "tool_name": "local_sql", "tool_result": result, "trace": trace}
 
 
+def answer_from_local(user_message: str) -> dict[str, Any]:
+    schema = local_schema()
+    started = time.perf_counter()
+    steps: list[dict[str, Any]] = []
+
+    schema_step_started = time.perf_counter()
+    steps.append(
+        {
+            "name": "inspect_local_schema",
+            "tool": "local_schema",
+            "input": {"database": str(LOCAL_DB_PATH)},
+            "output": {
+                "tables": [
+                    {
+                        "name": table["name"],
+                        "row_count": table["row_count"],
+                        "columns": [column["name"] for column in table["columns"]],
+                    }
+                    for table in schema
+                ]
+            },
+            "duration_ms": round((time.perf_counter() - schema_step_started) * 1000, 2),
+        }
+    )
+
+    tool_started = time.perf_counter()
+    try:
+        tool_name, tool_args, native_response = choose_local_native_tool_call(user_message, schema)
+    except Exception as exc:
+        fallback_code = deterministic_python_analysis(user_message)
+        if not fallback_code:
+            raise
+        tool_name = "python_analysis"
+        tool_args = {"code": fallback_code}
+        native_response = {"fallback_reason": str(exc)}
+    deterministic_unsupported = unsupported_question_reason(user_message, schema)
+    deterministic_clarification = clarification_question_reason(user_message, schema)
+    if deterministic_unsupported and tool_name not in {"unsupported_question", "clarification_needed"}:
+        tool_name = "unsupported_question"
+        tool_args = {"reason": deterministic_unsupported}
+    if deterministic_clarification and tool_name not in {"unsupported_question", "clarification_needed"}:
+        tool_name = "clarification_needed"
+        tool_args = {"question": deterministic_clarification}
+    steps.append(
+        {
+            "name": "native_function_call",
+            "tool": "ollama_native_tool_call",
+            "reason": "Ollama returned message.tool_calls instead of prompt-formatted JSON.",
+            "input": {"question": user_message, "available_tools": [tool["function"]["name"] for tool in local_function_tools()]},
+            "output": {"tool_name": tool_name, "arguments": tool_args},
+            "duration_ms": round((time.perf_counter() - tool_started) * 1000, 2),
+        }
+    )
+
+    if tool_name == "clarification_needed":
+        answer = tool_args.get("question") or "Please clarify what metric or scope you want me to use."
+        trace = {
+            "tool_name": tool_name,
+            "steps": steps + [{"name": "ask_for_clarification", "output": {"question": answer}}],
+            "tool_input": {"question": user_message, "database": str(LOCAL_DB_PATH)},
+            "tool_output": {"question": answer},
+            "timings_ms": {"total": round((time.perf_counter() - started) * 1000, 2)},
+            "native_function_call": True,
+        }
+        return {"answer": answer, "tool_name": tool_name, "tool_result": {"question": answer}, "trace": trace}
+
+    if tool_name == "unsupported_question":
+        reason = tool_args.get("reason") or "The question cannot be answered from the local CRM schema."
+        answer = f"I can't answer that from the local CRM database. {reason}"
+        trace = {
+            "tool_name": tool_name,
+            "steps": steps + [{"name": "unsupported_answer", "output": {"reason": reason}}],
+            "tool_input": {"question": user_message, "database": str(LOCAL_DB_PATH)},
+            "tool_output": {"reason": reason},
+            "timings_ms": {"total": round((time.perf_counter() - started) * 1000, 2)},
+            "native_function_call": True,
+        }
+        return {"answer": answer, "tool_name": tool_name, "tool_result": {"reason": reason}, "trace": trace}
+
+    if tool_name == "python_analysis":
+        code = str(tool_args.get("code") or "").strip()
+        if not code:
+            fallback = deterministic_python_analysis(user_message)
+            if not fallback:
+                raise RuntimeError("Native tool call selected python_analysis without code.")
+            code = fallback
+            steps.append({"name": "native_argument_repair", "source": "deterministic_fallback", "output": {"code": code}})
+        try:
+            validate_python_script(code)
+            result = run_python_analysis(code)
+        except Exception as exc:
+            repair_started = time.perf_counter()
+            steps.append({"name": "execute_python_analysis", "input": {"database": str(LOCAL_DB_PATH), "code": code}, "error": str(exc)})
+            tool_name_2, tool_args_2, _ = choose_local_native_tool_call(user_message, schema, previous_error=str(exc))
+            if tool_name_2 != "python_analysis" or not tool_args_2.get("code"):
+                fallback = deterministic_python_analysis(user_message)
+                if not fallback:
+                    raise
+                code = fallback
+                repair_source = "deterministic_fallback"
+            else:
+                code = str(tool_args_2["code"])
+                repair_source = "ollama_native_tool_call"
+            try:
+                validate_python_script(code)
+                result = run_python_analysis(code)
+            except Exception:
+                fallback = deterministic_python_analysis(user_message)
+                if not fallback:
+                    raise
+                code = fallback
+                validate_python_script(code)
+                result = run_python_analysis(code)
+            steps.append(
+                {
+                    "name": "repair_python_analysis",
+                    "tool": repair_source,
+                    "input": {"previous_error": str(exc)},
+                    "output": {"code": code},
+                    "duration_ms": round((time.perf_counter() - repair_started) * 1000, 2),
+                }
+            )
+        steps.append({"name": "execute_python_analysis", "tool": "python_analysis", "input": {"database": str(LOCAL_DB_PATH), "code": code}, "output": result})
+        answer = ollama_chat(
+            [
+                {
+                    "role": "system",
+                    "content": (
+                        "Answer the user's CRM question from the Python analysis result. "
+                        "If the result does not contain enough evidence to answer the user's question, say exactly what is missing. "
+                        "Do not infer or invent data. Be concise. Do not mention SQL, Python code, tool names, traces, or implementation details unless asked."
+                    ),
+                },
+                {"role": "user", "content": json.dumps({"question": user_message, "analysis": result}, ensure_ascii=False, default=str)},
+            ]
+        )
+        trace = {
+            "tool_name": "python_analysis",
+            "steps": steps + [{"name": "generate_answer", "input": {"question": user_message, "analysis_result": result}, "output": {"answer": answer}}],
+            "tool_input": {"question": user_message, "database": str(LOCAL_DB_PATH)},
+            "tool_output": result,
+            "timings_ms": {"total": round((time.perf_counter() - started) * 1000, 2)},
+            "native_function_call": True,
+        }
+        return {"answer": answer, "tool_name": "python_analysis", "tool_result": result, "trace": trace}
+
+    sql = str(tool_args.get("sql") or "").strip()
+    if not sql:
+        sql = choose_local_sql(user_message, schema)
+        steps.append({"name": "native_argument_repair", "source": "legacy_sql_generator", "output": {"sql": sql}})
+    if " limit " not in sql.lower() and not re.search(r"\bcount\s*\(|\bsum\s*\(|\bavg\s*\(|\bmin\s*\(|\bmax\s*\(", sql, re.I):
+        sql = f"{sql.rstrip(';')} limit 50"
+    try:
+        result = execute_local_sql(sql)
+    except Exception as exc:
+        repair_started = time.perf_counter()
+        steps.append({"name": "execute_sql", "tool": "local_sql", "input": {"database": str(LOCAL_DB_PATH), "sql": sql}, "error": str(exc)})
+        tool_name_2, tool_args_2, _ = choose_local_native_tool_call(user_message, schema, previous_error=str(exc))
+        if tool_name_2 == "local_sql" and tool_args_2.get("sql"):
+            sql = str(tool_args_2["sql"])
+        else:
+            sql = choose_local_sql(user_message, schema, previous_error=str(exc))
+        if " limit " not in sql.lower() and not re.search(r"\bcount\s*\(|\bsum\s*\(|\bavg\s*\(|\bmin\s*\(|\bmax\s*\(", sql, re.I):
+            sql = f"{sql.rstrip(';')} limit 50"
+        result = execute_local_sql(sql)
+        steps.append(
+            {
+                "name": "repair_sql",
+                "tool": "ollama_native_tool_call",
+                "input": {"previous_error": str(exc)},
+                "output": {"sql": sql},
+                "duration_ms": round((time.perf_counter() - repair_started) * 1000, 2),
+            }
+        )
+    steps.append({"name": "execute_sql", "tool": "local_sql", "input": {"database": str(LOCAL_DB_PATH), "sql": sql}, "output": result})
+    answer = ollama_chat(
+        [
+            {
+                "role": "system",
+                "content": (
+                    "Answer the user's CRM question from the SQLite query result. "
+                    "If the result does not contain enough evidence to answer the user's question, say exactly what is missing. "
+                    "Do not infer or invent data. Be concise. Do not mention SQL, query text, tool names, traces, or implementation details unless asked."
+                ),
+            },
+            {"role": "user", "content": json.dumps({"question": user_message, "query_result": result}, ensure_ascii=False, default=str)},
+        ]
+    )
+    trace = {
+        "tool_name": "local_sql",
+        "steps": steps + [{"name": "generate_answer", "input": {"question": user_message, "query_result": result}, "output": {"answer": answer}}],
+        "tool_input": {"question": user_message, "database": str(LOCAL_DB_PATH)},
+        "tool_output": result,
+        "timings_ms": {"total": round((time.perf_counter() - started) * 1000, 2)},
+        "native_function_call": True,
+    }
+    return {"answer": answer, "tool_name": "local_sql", "tool_result": result, "trace": trace}
+
+
 def choose_tool(user_message: str, tools: list[dict[str, Any]]) -> dict[str, Any]:
     routed = route_obvious_tool(user_message, tools)
     if routed:
@@ -2113,8 +2028,8 @@ def route_obvious_tool(user_message: str, tools: list[dict[str, Any]]) -> dict[s
 def index():
     local_mode = DATA_SOURCE == "local"
     chat_id = ensure_chat_session(request.args.get("chat"))
-    return render_template_string(
-        HTML,
+    return render_template(
+        "chat.html",
         model=OLLAMA_MODEL,
         chat_id=chat_id,
         data_source=DATA_SOURCE,
@@ -2137,7 +2052,7 @@ def new_chat():
 
 @app.get("/data")
 def data_page():
-    return render_template_string(DATA_HTML, db_path=str(LOCAL_DB_PATH))
+    return render_template("data.html", db_path=str(LOCAL_DB_PATH))
 
 
 @app.get("/data/tables")
@@ -2204,8 +2119,8 @@ def trace_page(trace_id: str):
         payload.get("tool_input", {}).get("question")
         or next((step.get("input", {}).get("question") for step in steps if step.get("input", {}).get("question")), "")
     )
-    return render_template_string(
-        TRACE_HTML,
+    return render_template(
+        "trace.html",
         trace_id=trace_id,
         trace=payload,
         steps=steps,
@@ -2218,8 +2133,8 @@ def trace_page(trace_id: str):
 
 @app.get("/feedback")
 def feedback_page():
-    return render_template_string(
-        FEEDBACK_HTML,
+    return render_template(
+        "feedback.html",
         items=load_disliked_feedback(),
         render_json=render_trace_value,
     )

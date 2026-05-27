@@ -14,6 +14,8 @@ env/
 *.pyo
 *.pyd
 *.log
+model_eval_results.json
+qwen_browser_test_summary.json
 zoho_schema*.json
 zoho_samples*.json
 .zoho_analytics_mcp_data/

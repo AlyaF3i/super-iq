@@ -1,0 +1,80 @@
+
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Response Trace</title>
+  <style>
+    :root { color-scheme: light; font-family: Inter, Segoe UI, Arial, sans-serif; }
+    body { margin: 0; background: #f5f7f8; color: #182026; }
+    main { max-width: 1120px; margin: 0 auto; padding: 28px; }
+    header { display: flex; justify-content: space-between; gap: 18px; align-items: flex-start; margin-bottom: 18px; }
+    h1 { font-size: 24px; margin: 0; }
+    h2 { font-size: 16px; margin: 0 0 10px; }
+    h3 { font-size: 14px; margin: 0 0 8px; color: #184d47; }
+    .small { color: #52616b; font-size: 12px; line-height: 1.45; }
+    .nav { display: flex; gap: 12px; margin-top: 8px; }
+    .nav a { color: #184d47; font-size: 13px; font-weight: 700; text-decoration: none; }
+    .summary { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin-bottom: 16px; }
+    .metric, .step, .panel { background: #fff; border: 1px solid #d9e0e4; border-radius: 8px; padding: 14px; }
+    .metric strong { display: block; font-size: 18px; margin-top: 4px; }
+    .steps { display: grid; gap: 12px; }
+    .step-head { display: flex; justify-content: space-between; gap: 12px; align-items: baseline; border-bottom: 1px solid #edf1f3; padding-bottom: 8px; margin-bottom: 10px; }
+    .badge { background: #dde8e5; color: #184d47; border-radius: 999px; padding: 3px 8px; font-size: 12px; font-weight: 700; }
+    pre { background: #182026; color: #f5f7f8; padding: 12px; border-radius: 6px; overflow: auto; max-height: 420px; white-space: pre-wrap; }
+    code { background: #dce7e4; padding: 1px 4px; border-radius: 4px; }
+    table { border-collapse: collapse; width: 100%; margin-top: 8px; font-size: 13px; }
+    th, td { border: 1px solid #ccd6da; padding: 7px 8px; text-align: left; vertical-align: top; }
+    th { background: #dde8e5; }
+    .kv { display: grid; grid-template-columns: 160px minmax(0, 1fr); gap: 8px; font-size: 13px; margin: 6px 0; }
+    .error { border-color: #d7836b; background: #fff7f4; }
+    @media (max-width: 860px) { main { padding: 16px; } .summary { grid-template-columns: 1fr 1fr; } .kv { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+<main>
+  <header>
+    <div>
+      <h1>Response Trace</h1>
+      <div class="small">Trace ID: {{ trace_id }}</div>
+      <nav class="nav"><a href="/">Chat</a><a href="/data">Data</a></nav>
+    </div>
+  </header>
+
+  <section class="summary">
+    <div class="metric"><span class="small">Tool</span><strong>{{ trace.get("tool_name") or "none" }}</strong></div>
+    <div class="metric"><span class="small">Steps</span><strong>{{ steps|length }}</strong></div>
+    <div class="metric"><span class="small">Total</span><strong>{{ timings.get("total", "n/a") }} ms</strong></div>
+    <div class="metric"><span class="small">Execution</span><strong>{{ timings.get("python_execution", timings.get("sql_execution", "n/a")) }} ms</strong></div>
+  </section>
+
+  <section class="panel">
+    <h2>Question</h2>
+    <p>{{ question }}</p>
+  </section>
+
+  <section class="steps" style="margin-top: 16px;">
+    {% for step in steps %}
+    <article class="step {% if step.get('error') %}error{% endif %}">
+      <div class="step-head">
+        <h3>{{ loop.index }}. {{ step.get("name", "step") }}</h3>
+        {% if step.get("duration_ms") is not none %}<span class="badge">{{ step.get("duration_ms") }} ms</span>{% endif %}
+      </div>
+      {% if step.get("tool") %}<div class="kv"><strong>Tool</strong><span>{{ step.get("tool") }}</span></div>{% endif %}
+      {% if step.get("reason") %}<div class="kv"><strong>Reason</strong><span>{{ step.get("reason") }}</span></div>{% endif %}
+      {% if step.get("source") %}<div class="kv"><strong>Source</strong><span>{{ step.get("source") }}</span></div>{% endif %}
+      {% if step.get("error") %}<h3>Error</h3><pre>{{ step.get("error") }}</pre>{% endif %}
+      {% if step.get("input") %}<h3>Input</h3>{{ render_json(step.get("input"))|safe }}{% endif %}
+      {% if step.get("output") %}<h3>Output</h3>{{ render_json(step.get("output"))|safe }}{% endif %}
+    </article>
+    {% endfor %}
+  </section>
+
+  <section class="panel" style="margin-top: 16px;">
+    <h2>Raw Trace</h2>
+    <pre>{{ raw_trace }}</pre>
+  </section>
+</main>
+</body>
+</html>

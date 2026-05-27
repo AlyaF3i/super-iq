@@ -1,0 +1,303 @@
+
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ title }}</title>
+  <style>
+    :root { color-scheme: light; font-family: Inter, Segoe UI, Arial, sans-serif; --navy: #061427; --blue: #149ee7; --cyan: #2fd3ff; --ink: #101c2e; --line: #d7e5ee; --soft: #f3f8fb; }
+    body { margin: 0; background: linear-gradient(180deg, #eef7fc 0%, #f7fbfe 46%, #edf4f8 100%); color: var(--ink); }
+    .topbar { position: relative; overflow: hidden; background: radial-gradient(circle at 56% 0%, rgba(47, 211, 255, 0.22), transparent 34%), linear-gradient(135deg, #020915 0%, #061427 54%, #0a2742 100%); color: white; border-bottom: 4px solid var(--blue); }
+    .topbar::after { content: ""; position: absolute; inset: 0; background: repeating-linear-gradient(135deg, transparent 0 18px, rgba(47, 211, 255, 0.72) 18px 26px, transparent 26px 44px); width: 190px; left: auto; opacity: 0.85; }
+    .topbar-inner { position: relative; z-index: 1; max-width: 1320px; margin: 0 auto; padding: 16px 28px 20px; display: grid; grid-template-columns: 210px auto minmax(0, 1fr); gap: 24px; align-items: center; }
+    .brand { font-weight: 900; font-size: 24px; line-height: 1; letter-spacing: 0; }
+    .brand span { color: var(--cyan); }
+    .hero-title { font-size: 28px; font-weight: 800; line-height: 1.16; text-shadow: 0 2px 8px rgba(0, 0, 0, 0.36); }
+    .hero-title span { color: var(--cyan); }
+    .status { font-size: 13px; color: #52616b; text-align: right; white-space: nowrap; }
+    main { max-width: 1320px; margin: 0 auto; padding: 24px 28px 32px; }
+    header { display: flex; justify-content: space-between; gap: 18px; align-items: center; margin-bottom: 18px; }
+    h1 { font-size: 22px; line-height: 1.2; margin: 0; }
+    .shell { display: grid; grid-template-columns: 240px minmax(620px, 1fr) 340px; gap: 18px; align-items: start; }
+    .panel { background: rgba(255, 255, 255, 0.96); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; box-shadow: 0 14px 36px rgba(7, 33, 54, 0.08); }
+    #messages { height: 66vh; min-height: 460px; overflow: auto; padding: 20px; display: flex; flex-direction: column; gap: 12px; }
+    .msg { max-width: 86%; padding: 12px 14px; border-radius: 8px; white-space: pre-wrap; line-height: 1.45; font-size: 14px; direction: auto; unicode-bidi: plaintext; }
+    .user { align-self: flex-end; background: linear-gradient(135deg, #0a4f8f, #149ee7); color: white; }
+    .assistant { align-self: flex-start; background: #edf7fc; color: #101c2e; border: 1px solid #d7eaf5; }
+    .meta { align-self: flex-start; color: #52616b; font-size: 12px; padding: 0 2px; }
+    .trace { align-self: flex-start; max-width: 92%; font-size: 12px; color: #334149; }
+    .trace a { color: #0a76ba; font-weight: 700; text-decoration: none; }
+    .feedback-button { border: 1px solid #c8d9e4; background: white; color: #52616b; border-radius: 999px; padding: 4px 9px; margin-left: 10px; font-size: 12px; font-weight: 800; line-height: 1; vertical-align: middle; }
+    .feedback-button:hover { border-color: #0b83cc; color: #0b83cc; }
+    .feedback-button:disabled { background: #edf3f7; color: #7d8b94; cursor: default; }
+    .trace summary { cursor: pointer; color: #0a76ba; font-weight: 700; }
+    .trace pre { background: #182026; color: #f5f7f8; padding: 12px; border-radius: 6px; overflow: auto; max-height: 360px; }
+    form { display: flex; border-top: 1px solid var(--line); }
+    textarea { flex: 1; border: 0; resize: vertical; min-height: 58px; max-height: 180px; padding: 14px; font: inherit; outline: none; }
+    button { border: 0; background: #0b83cc; color: white; padding: 0 22px; font-weight: 700; cursor: pointer; }
+    button:disabled { background: #9ba8ae; cursor: wait; }
+    aside { padding: 16px; }
+    h2 { font-size: 15px; margin: 0 0 12px; }
+    .tool { border-top: 1px solid #edf1f3; padding: 10px 0; }
+    .tool:first-of-type { border-top: 0; }
+    .tool strong { display: block; font-size: 13px; }
+    .tool span { display: block; color: #52616b; font-size: 12px; line-height: 1.35; margin-top: 4px; }
+    .suggestions { display: flex; flex-direction: column; gap: 14px; margin-bottom: 18px; }
+    .suggestion-group { border-bottom: 1px solid #edf1f3; padding-bottom: 12px; }
+    .suggestion-group:last-child { border-bottom: 0; padding-bottom: 0; }
+    .suggestion-category { color: #52616b; font-size: 11px; font-weight: 800; letter-spacing: 0.04em; text-transform: uppercase; margin-bottom: 8px; }
+    .suggestion-button { display: block; width: 100%; border: 1px solid #d7eaf5; background: #f3f9fd; color: #101c2e; border-radius: 6px; padding: 9px 10px; margin: 6px 0; text-align: left; font-size: 12px; font-weight: 700; line-height: 1.35; cursor: pointer; }
+    .suggestion-button:hover { border-color: #149ee7; background: #e7f5fd; }
+    .small { color: #52616b; font-size: 12px; line-height: 1.45; }
+    .nav { display: flex; gap: 10px; margin-top: 0; justify-content: flex-start; }
+    .nav a { color: white; font-size: 15px; font-weight: 800; text-decoration: none; padding: 10px 15px; border: 1px solid rgba(47, 211, 255, 0.45); border-radius: 6px; background: rgba(20, 158, 231, 0.18); }
+    .nav a:hover { background: rgba(47, 211, 255, 0.28); }
+    .msg table, .data-table { border-collapse: collapse; width: 100%; margin-top: 8px; font-size: 13px; }
+    .msg th, .msg td, .data-table th, .data-table td { border: 1px solid #ccd6da; padding: 7px 8px; text-align: left; vertical-align: top; }
+    .msg th, .data-table th { background: #dde8e5; color: #182026; }
+    .msg code { background: #dce7e4; padding: 1px 4px; border-radius: 4px; }
+    .data-controls { display: flex; gap: 10px; align-items: center; margin: 16px 0; flex-wrap: wrap; }
+    .session-list { display: flex; flex-direction: column; gap: 8px; }
+    .session-list a { color: #0b4771; text-decoration: none; font-size: 13px; padding: 8px; border-radius: 6px; background: #edf7fc; }
+    .session-list a.active { background: #0b4771; color: white; }
+    .new-chat { display: block; text-align: center; background: #0b83cc; color: white; text-decoration: none; padding: 9px 10px; border-radius: 6px; font-weight: 700; margin-bottom: 12px; }
+    select, input { border: 1px solid #c9d3d7; border-radius: 6px; padding: 8px 10px; font: inherit; background: white; }
+    .table-wrap { overflow: auto; max-height: 68vh; border: 1px solid #d9e0e4; border-radius: 8px; background: white; }
+    @media (max-width: 1040px) { .topbar-inner { grid-template-columns: 1fr; gap: 12px; } main { padding: 16px; } .shell { grid-template-columns: 1fr; } #messages { height: 58vh; } header { display: block; } .status { text-align: left; } .nav { flex-wrap: wrap; } }
+  </style>
+</head>
+<body>
+<div class="topbar">
+  <div class="topbar-inner">
+    <div class="brand">Cyber<span>|</span>Gate</div>
+    <nav class="nav"><a href="/">Chat</a><a href="/data">Data</a></nav>
+    <div class="hero-title">Local CRM <span>Intelligence</span> Console</div>
+  </div>
+</div>
+<main>
+  <header>
+    <div>
+      <h1>{{ title }}</h1>
+      <div class="small">Ollama model: {{ model }} | Source: {{ data_source }}</div>
+    </div>
+    <div class="status" id="status">Local CRM ready</div>
+  </header>
+  <div class="shell">
+    <aside class="panel">
+      <a class="new-chat" href="/new-chat">New chat</a>
+      <h2>Chats</h2>
+      <div id="sessions" class="session-list small">Loading...</div>
+    </aside>
+    <section class="panel">
+      <div id="messages">
+        <div class="msg assistant">{{ intro }}</div>
+      </div>
+      <form id="chatForm">
+        <textarea id="prompt" placeholder="{{ placeholder }}" required></textarea>
+        <button id="send" type="submit">Send</button>
+      </form>
+    </section>
+    <aside class="panel">
+      <h2>أسئلة مقترحة</h2>
+      <div class="suggestions">
+        <div class="suggestion-group">
+          <div class="suggestion-category">أسئلة يجب أن يرفضها الوكيل</div>
+          <button class="suggestion-button" type="button" data-prompt="ما عاصمة فرنسا؟">ما عاصمة فرنسا؟</button>
+          <button class="suggestion-button" type="button" data-prompt="من هو رئيس الولايات المتحدة؟">من هو رئيس الولايات المتحدة؟</button>
+          <button class="suggestion-button" type="button" data-prompt="ما آخر مباراة في الدوري الإنجليزي الممتاز؟">ما آخر مباراة في الدوري الإنجليزي الممتاز؟</button>
+        </div>
+        <div class="suggestion-group">
+          <div class="suggestion-category">استدعاء أداة واحدة</div>
+          <button class="suggestion-button" type="button" data-prompt="كم عدد العملاء المحتملين لدينا؟">كم عدد العملاء المحتملين لدينا؟</button>
+          <button class="suggestion-button" type="button" data-prompt="ما إجمالي إيرادات المبيعات لدينا؟">ما إجمالي إيرادات المبيعات لدينا؟</button>
+          <button class="suggestion-button" type="button" data-prompt="اعرض لي المدفوعات المتأخرة">اعرض لي المدفوعات المتأخرة</button>
+        </div>
+        <div class="suggestion-group">
+          <div class="suggestion-category">استدعاءات متعددة</div>
+          <button class="suggestion-button" type="button" data-prompt="حلل مسار المبيعات وحدد أضعف مرحلة">حلل مسار المبيعات وحدد أضعف مرحلة</button>
+          <button class="suggestion-button" type="button" data-prompt="قارن العملاء المحتملين حسب القطاع وأخبرني أين يجب أن نركز">قارن العملاء المحتملين حسب القطاع وأخبرني أين يجب أن نركز</button>
+          <button class="suggestion-button" type="button" data-prompt="حدد أفضل الحسابات أداء ومساهمتها في الإيرادات">حدد أفضل الحسابات أداء ومساهمتها في الإيرادات</button>
+        </div>
+      </div>
+    </aside>
+  </div>
+</main>
+<script>
+const messages = document.getElementById('messages');
+const form = document.getElementById('chatForm');
+const promptBox = document.getElementById('prompt');
+const send = document.getElementById('send');
+const statusEl = document.getElementById('status');
+const sessionsEl = document.getElementById('sessions');
+const chatId = new URLSearchParams(window.location.search).get('chat') || '{{ chat_id }}';
+
+document.querySelectorAll('.suggestion-button').forEach((button) => {
+  button.addEventListener('click', () => {
+    promptBox.value = button.dataset.prompt || '';
+    promptBox.focus();
+  });
+});
+
+function addMessage(text, cls) {
+  const div = document.createElement('div');
+  div.className = 'msg ' + cls;
+  if (cls === 'assistant') {
+    div.innerHTML = renderMarkdown(text);
+  } else {
+    div.textContent = text;
+  }
+  messages.appendChild(div);
+  messages.scrollTop = messages.scrollHeight;
+}
+
+function escapeHtml(text) {
+  return String(text)
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#039;');
+}
+
+function renderMarkdown(text) {
+  const lines = String(text).trim().split(/\r?\n/);
+  let html = '';
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    if (line.trim().startsWith('|') && lines[i + 1] && /^\s*\|?\s*:?-{3,}:?/.test(lines[i + 1])) {
+      const headers = line.split('|').slice(1, -1).map(c => c.trim());
+      i += 2;
+      const rows = [];
+      while (i < lines.length && lines[i].trim().startsWith('|')) {
+        rows.push(lines[i].split('|').slice(1, -1).map(c => c.trim()));
+        i++;
+      }
+      i--;
+      html += '<table><thead><tr>' + headers.map(h => `<th>${escapeHtml(h)}</th>`).join('') + '</tr></thead><tbody>';
+      html += rows.map(row => '<tr>' + row.map(c => `<td>${escapeHtml(c)}</td>`).join('') + '</tr>').join('');
+      html += '</tbody></table>';
+    } else if (line.trim()) {
+      let rendered = escapeHtml(line)
+        .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+        .replace(/`([^`]+)`/g, '<code>$1</code>');
+      html += `<p dir="auto">${rendered}</p>`;
+    }
+  }
+  return html || escapeHtml(text);
+}
+
+function addMeta(text) {
+  const div = document.createElement('div');
+  div.className = 'meta';
+  div.textContent = text;
+  messages.appendChild(div);
+  messages.scrollTop = messages.scrollHeight;
+}
+
+function addTrace(traceId, disliked = false) {
+  if (!traceId) return;
+  const box = document.createElement('div');
+  box.className = 'trace';
+  box.innerHTML = `<a href="/trace-page/${traceId}" target="_blank" rel="noopener">Response details</a><button class="feedback-button" type="button" data-trace="${traceId}" ${disliked ? 'disabled' : ''}>${disliked ? 'Disliked' : 'Dislike'}</button>`;
+  messages.appendChild(box);
+  messages.scrollTop = messages.scrollHeight;
+}
+
+function renderTurn(turn) {
+  addMessage(turn.user_message, 'user');
+  if (turn.tool_name) addMeta(`Tool used: ${turn.tool_name}`);
+  addMessage(turn.answer, 'assistant');
+  addTrace(turn.trace_id, Boolean(turn.disliked));
+}
+
+async function loadTools() {
+  const res = await fetch('/tools');
+  const data = await res.json();
+  if (!data.ok) {
+    statusEl.textContent = data.error;
+    return;
+  }
+  statusEl.textContent = `${data.tools.length} tools loaded`;
+}
+
+async function loadSessions() {
+  const res = await fetch('/sessions');
+  const data = await res.json();
+  if (!data.ok) {
+    sessionsEl.textContent = data.error;
+    return;
+  }
+  sessionsEl.innerHTML = data.sessions.map(s => {
+    const active = s.id === chatId ? ' active' : '';
+    return `<a class="${active}" href="/?chat=${encodeURIComponent(s.id)}">${escapeHtml(s.title || 'Untitled chat')}<br><span>${escapeHtml(s.updated_at || '')}</span></a>`;
+  }).join('');
+}
+
+async function loadHistory() {
+  const res = await fetch(`/history?chat=${encodeURIComponent(chatId)}`);
+  const data = await res.json();
+  if (!data.ok || !data.turns.length) return;
+  messages.innerHTML = '';
+  data.turns.forEach(renderTurn);
+}
+
+form.addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const text = promptBox.value.trim();
+  if (!text) return;
+  promptBox.value = '';
+  send.disabled = true;
+  addMessage(text, 'user');
+  addMeta('Thinking...');
+  try {
+    const res = await fetch('/chat', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({message: text, chat_id: chatId})
+    });
+    const data = await res.json();
+    messages.lastChild.remove();
+    if (!data.ok) {
+      addMessage(data.error, 'assistant');
+    } else {
+      if (data.tool_name) addMeta(`Tool used: ${data.tool_name}`);
+      addMessage(data.answer, 'assistant');
+      addTrace(data.trace_id, false);
+      loadSessions();
+    }
+  } catch (err) {
+    messages.lastChild.remove();
+    addMessage(String(err), 'assistant');
+  } finally {
+    send.disabled = false;
+    promptBox.focus();
+  }
+});
+
+messages.addEventListener('click', async (event) => {
+  const button = event.target.closest('.feedback-button');
+  if (!button || button.disabled) return;
+  const traceId = button.dataset.trace;
+  button.disabled = true;
+  button.textContent = 'Saving...';
+  try {
+    const res = await fetch('/feedback/dislike', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({trace_id: traceId})
+    });
+    const data = await res.json();
+    button.textContent = data.ok ? 'Disliked' : 'Retry';
+    button.disabled = Boolean(data.ok);
+  } catch (err) {
+    button.textContent = 'Retry';
+    button.disabled = false;
+  }
+});
+
+loadSessions();
+loadHistory();
+</script>
+</body>
+</html>
