@@ -750,6 +750,9 @@ def choose_local_native_tool_call(
         "Do not answer directly. Never summarize the schema. Use only exact table and column names from the schema. "
         "If the user asks about politics, sports, geography, entertainment, weather, recipes, jokes, or anything outside local CRM data, "
         "call unsupported_question. If the CRM request is ambiguous, call clarification_needed. "
+        "If the user asks which campaign, employee, team, account, or group is best/better without naming a metric, "
+        "call clarification_needed and ask whether to compare by revenue, cost, count, conversion, activity volume, or another metric. "
+        "For every tool argument that contains user-facing text, use the same language as the user. "
         "For unsupported_question and clarification_needed, write the reason/question in the same language as the user. "
         "For simple counts/totals/lists use local_sql. For multi-step analysis, rankings, recommendations, risk, focus, or comparisons use python_analysis. "
         "When generating python_analysis code, prefer loading raw rows with SELECT column lists and doing grouping in pandas/Polars. "
@@ -1181,6 +1184,7 @@ def answer_from_local(user_message: str) -> dict[str, Any]:
                     "role": "system",
                     "content": (
                         "Answer the user's CRM question from the Python analysis result. "
+                        "Answer in the same language as the user's question. If the user writes Arabic, answer in Arabic. "
                         "If the result does not contain enough evidence to answer the user's question, say exactly what is missing. "
                         "Do not infer or invent data. Be concise. Do not mention SQL, Python code, tool names, traces, or implementation details unless asked."
                     ),
@@ -1249,6 +1253,7 @@ def answer_from_local(user_message: str) -> dict[str, Any]:
                 "role": "system",
                 "content": (
                     "Answer the user's CRM question from the SQLite query result. "
+                    "Answer in the same language as the user's question. If the user writes Arabic, answer in Arabic. "
                     "If the result does not contain enough evidence to answer the user's question, say exactly what is missing. "
                     "Do not infer or invent data. For row lists, summarize the important rows in a short markdown table. "
                     "Do not output raw JSON or code blocks unless the user explicitly asks for raw data. "

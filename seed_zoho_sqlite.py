@@ -22,6 +22,7 @@ LEAD_STATUSES = ["New", "Contacted", "Qualified", "Lost", "Converted"]
 DEAL_STAGES = ["Qualification", "Needs Analysis", "Proposal", "Negotiation", "Closed Won", "Closed Lost"]
 ORDER_STATUSES = ["Draft", "Confirmed", "Delivered", "Cancelled", "Invoiced"]
 CASE_STATUSES = ["New", "Escalated", "In Progress", "On Hold", "Closed"]
+ACTIVITY_TYPES = ["Call", "Meeting", "Email", "Task", "Demo", "Follow-up", "Proposal Review"]
 DEPARTMENTS = ["Sales", "Marketing", "Customer Success", "Support", "Finance", "Operations"]
 ROLES = ["Sales Rep", "Account Executive", "Sales Manager", "Marketing Manager", "Support Agent", "Operations Lead"]
 SALARY_RANGES = {
@@ -167,6 +168,8 @@ def fake_by_name(api_name: str) -> Any:
         return random.choice(CITIES)
     if "country" in lower:
         return random.choice(COUNTRIES)
+    if lower == "activity_type" or "activity_type" in lower:
+        return random.choice(ACTIVITY_TYPES)
     if "order_status" in lower or lower in {"po_status", "invoice_status"}:
         return random.choice(ORDER_STATUSES)
     if "case" in lower and "status" in lower:
