@@ -762,6 +762,7 @@ def choose_local_native_tool_call(
         "For top accounts by revenue contribution, local_sql can group Deals by Account_Name and compute SUM(Amount), COUNT(*), "
         "and revenue contribution as SUM(Amount) * 100.0 / (SELECT SUM(Amount) FROM Deals). "
         "For industry focus, compare Leads or Accounts by Industry using available revenue/count fields. "
+        "Calls table links to people via Who_Id and has Owner_Name for call owner analysis; do not join Calls on Account_Name. "
         "Your whole response must be a single tool call."
     )
     tools = local_function_tools()
@@ -1028,6 +1029,8 @@ DB_PATH = {str(LOCAL_DB_PATH)!r}
 {code}
 
 def clean(value):
+    if isinstance(value, float) and (math.isnan(value) or math.isinf(value)):
+        return None
     if hasattr(value, "to_dict"):
         try:
             return value.to_dict(orient="records")
