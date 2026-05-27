@@ -1427,11 +1427,17 @@ def deterministic_python_analysis(user_message: str) -> str | None:
             "import pandas as pd\n"
             "con = sqlite3.connect(DB_PATH)\n"
             "df = pd.read_sql_query('select Industry, Annual_Revenue, No_of_Employees from Leads', con)\n"
-            "result = (df.groupby('Industry', as_index=False)\n"
-            "  .agg(lead_count=('Industry', 'size'), avg_annual_revenue=('Annual_Revenue', 'mean'), avg_employee_count=('No_of_Employees', 'mean'))\n"
-            "  .sort_values('avg_annual_revenue', ascending=False)\n"
-            "  .head(5)\n"
-            "  .to_dict(orient='records'))"
+            "summary = (df.groupby('Industry', as_index=False)\n"
+            "  .agg(lead_count=('Industry', 'size'), avg_annual_revenue=('Annual_Revenue', 'mean'), total_annual_revenue=('Annual_Revenue', 'sum'), avg_employee_count=('No_of_Employees', 'mean')))\n"
+            "summary['focus_score'] = summary['lead_count'] * summary['avg_annual_revenue']\n"
+            "summary = summary.sort_values('focus_score', ascending=False)\n"
+            "top = summary.iloc[0].to_dict()\n"
+            "result = {\n"
+            "  'recommended_focus_industry': top['Industry'],\n"
+            "  'reason': 'Highest combined score from lead volume and average annual revenue.',\n"
+            "  'industry_comparison': summary.round(2).to_dict(orient='records'),\n"
+            "  'next_action': f\"Focus outreach on {top['Industry']} leads first, then review the second-ranked industry for follow-up capacity.\"\n"
+            "}"
         )
 
     if "lead" in text and "industry" in text and any(token in text for token in ["count", "many", "number"]):
@@ -1450,11 +1456,17 @@ def deterministic_python_analysis(user_message: str) -> str | None:
             "con = sqlite3.connect(DB_PATH)\n"
             "deals = pd.read_sql_query('select Account_Name, Amount, Stage, Probability from Deals', con)\n"
             "deals['weighted_revenue'] = deals['Amount'] * deals['Probability'] / 100\n"
-            "result = (deals.groupby('Account_Name', as_index=False)\n"
+            "summary = (deals.groupby('Account_Name', as_index=False)\n"
             "  .agg(deal_count=('Account_Name','size'), total_revenue=('Amount','sum'), weighted_revenue=('weighted_revenue','sum'), avg_probability=('Probability','mean'))\n"
-            "  .sort_values('total_revenue', ascending=False)\n"
-            "  .head(10)\n"
-            "  .to_dict(orient='records'))"
+            "  .sort_values('total_revenue', ascending=False))\n"
+            "total = float(summary['total_revenue'].sum())\n"
+            "summary['revenue_contribution_percent'] = (summary['total_revenue'] / total * 100).round(2)\n"
+            "top = summary.head(10).round(2)\n"
+            "result = {\n"
+            "  'top_accounts': top.to_dict(orient='records'),\n"
+            "  'top_3_revenue_contribution_percent': round(float(summary.head(3)['total_revenue'].sum() / total * 100), 2),\n"
+            "  'ranking_metric': 'total_revenue from Deals.Amount'\n"
+            "}"
         )
 
     return None
@@ -1791,28 +1803,40 @@ def answer_from_local(user_message: str) -> dict[str, Any]:
     )
 
     tool_started = time.perf_counter()
+    deterministic_unsupported = unsupported_question_reason(user_message, schema)
+    deterministic_clarification = clarification_question_reason(user_message, schema)
+    deterministic_code = deterministic_python_analysis(user_message)
     try:
         tool_name, tool_args, native_response = choose_local_native_tool_call(user_message, schema)
     except Exception as exc:
-        fallback_code = deterministic_python_analysis(user_message)
-        if not fallback_code:
-            raise
-        tool_name = "python_analysis"
-        tool_args = {"code": fallback_code}
+        if deterministic_unsupported:
+            tool_name = "unsupported_question"
+            tool_args = {"reason": deterministic_unsupported}
+        elif deterministic_clarification:
+            tool_name = "clarification_needed"
+            tool_args = {"question": deterministic_clarification}
+        else:
+            if deterministic_code:
+                tool_name = "python_analysis"
+                tool_args = {"code": deterministic_code}
+            else:
+                tool_name = "local_sql"
+                tool_args = {"sql": choose_local_sql(user_message, schema, previous_error=str(exc))}
         native_response = {"fallback_reason": str(exc)}
-    deterministic_unsupported = unsupported_question_reason(user_message, schema)
-    deterministic_clarification = clarification_question_reason(user_message, schema)
     if deterministic_unsupported and tool_name not in {"unsupported_question", "clarification_needed"}:
         tool_name = "unsupported_question"
         tool_args = {"reason": deterministic_unsupported}
     if deterministic_clarification and tool_name not in {"unsupported_question", "clarification_needed"}:
         tool_name = "clarification_needed"
         tool_args = {"question": deterministic_clarification}
+    if deterministic_code and tool_name == "python_analysis":
+        tool_args = {"code": deterministic_code}
     steps.append(
         {
             "name": "native_function_call",
             "tool": "ollama_native_tool_call",
-            "reason": "Ollama returned message.tool_calls instead of prompt-formatted JSON.",
+            "reason": native_response.get("fallback_reason")
+            or "Ollama returned message.tool_calls or a Qwen XML tool call.",
             "input": {"question": user_message, "available_tools": [tool["function"]["name"] for tool in local_function_tools()]},
             "output": {"tool_name": tool_name, "arguments": tool_args},
             "duration_ms": round((time.perf_counter() - tool_started) * 1000, 2),
@@ -1947,7 +1971,9 @@ def answer_from_local(user_message: str) -> dict[str, Any]:
                 "content": (
                     "Answer the user's CRM question from the SQLite query result. "
                     "If the result does not contain enough evidence to answer the user's question, say exactly what is missing. "
-                    "Do not infer or invent data. Be concise. Do not mention SQL, query text, tool names, traces, or implementation details unless asked."
+                    "Do not infer or invent data. For row lists, summarize the important rows in a short markdown table. "
+                    "Do not output raw JSON or code blocks unless the user explicitly asks for raw data. "
+                    "Be concise. Do not mention SQL, query text, tool names, traces, or implementation details unless asked."
                 ),
             },
             {"role": "user", "content": json.dumps({"question": user_message, "query_result": result}, ensure_ascii=False, default=str)},
@@ -2174,7 +2200,7 @@ def chat():
                 tool_name=result.get("tool_name"),
                 trace=trace_payload,
             )
-            return jsonify({"ok": True, "trace_id": trace_id, **result})
+            return jsonify({"ok": True, "chat_id": session_id, "trace_id": trace_id, **result})
 
         started = time.perf_counter()
         available_tools = mcp_list_tools()
@@ -2237,7 +2263,14 @@ def chat():
             trace=trace_payload,
         )
         return jsonify(
-            {"ok": True, "answer": answer, "tool_name": tool_name, "tool_result": tool_result, "trace_id": trace_id}
+            {
+                "ok": True,
+                "chat_id": session_id,
+                "answer": answer,
+                "tool_name": tool_name,
+                "tool_result": tool_result,
+                "trace_id": trace_id,
+            }
         )
     except Exception as exc:
         return jsonify({"ok": False, "error": str(exc)}), 500

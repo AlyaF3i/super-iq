@@ -16,6 +16,7 @@ env/
 *.log
 model_eval_results.json
 qwen_browser_test_summary.json
+suggestion_eval_results.json
 zoho_schema*.json
 zoho_samples*.json
 .zoho_analytics_mcp_data/
