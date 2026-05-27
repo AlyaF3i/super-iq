@@ -23,6 +23,7 @@ DEAL_STAGES = ["Qualification", "Needs Analysis", "Proposal", "Negotiation", "Cl
 ORDER_STATUSES = ["Draft", "Confirmed", "Delivered", "Cancelled", "Invoiced"]
 CASE_STATUSES = ["New", "Escalated", "In Progress", "On Hold", "Closed"]
 ACTIVITY_TYPES = ["Call", "Meeting", "Email", "Task", "Demo", "Follow-up", "Proposal Review"]
+TASK_STATUSES = ["Not Started", "In Progress", "Waiting", "Deferred", "Completed"]
 DEPARTMENTS = ["Sales", "Marketing", "Customer Success", "Support", "Finance", "Operations"]
 ROLES = ["Sales Rep", "Account Executive", "Sales Manager", "Marketing Manager", "Support Agent", "Operations Lead"]
 SALARY_RANGES = {
@@ -379,6 +380,8 @@ def row_for_module(module_schema: dict[str, Any], model_class: type, samples: di
             row[attr] = owner["Full_Name"]
         elif field_name in {"Created_By", "Modified_By"}:
             row[attr] = employee_lookup(employee_for_index(index + 1))
+        elif api_name == "Tasks" and field_name == "Status":
+            row[attr] = random.choice(TASK_STATUSES)
         else:
             row[attr] = fake_value(field, module_samples)
     row.setdefault("id", rand_id())

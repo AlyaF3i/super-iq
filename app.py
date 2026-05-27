@@ -916,6 +916,66 @@ def format_overdue_payments_answer(result: dict[str, Any], user_message: str) ->
     return "\n".join(lines)
 
 
+def has_task_list_shape(result: dict[str, Any]) -> bool:
+    rows = result.get("rows") or []
+    if not rows:
+        sql = str(result.get("sql") or "").lower()
+        return "tasks" in sql and "due_date" in sql and "priority" in sql
+    columns = set(rows[0])
+    return {"Subject", "Priority", "Due_Date", "Status"}.issubset(columns)
+
+
+def format_task_list_answer(result: dict[str, Any], user_message: str) -> str:
+    priority_rank = {"urgent": 0, "high": 1, "normal": 2, "low": 3}
+    rows = sorted(
+        result.get("rows") or [],
+        key=lambda row: (
+            priority_rank.get(str(row.get("Priority") or "").lower(), 9),
+            str(row.get("Due_Date") or ""),
+        ),
+    )[:10]
+    owner_key = "Owner_Name" if rows and "Owner_Name" in rows[0] else "Owner"
+    if uses_arabic(user_message):
+        if not rows:
+            return "لا توجد مهام متأخرة حسب البيانات المحلية الحالية."
+        lines = [
+            "هذه أهم المهام المتأخرة مرتبة حسب الأولوية ثم تاريخ الاستحقاق:",
+            "",
+            "| المهمة | الأولوية | تاريخ الاستحقاق | الحالة | المالك |",
+            "| :--- | :--- | :--- | :--- | :--- |",
+        ]
+        for row in rows:
+            lines.append(
+                "| {subject} | {priority} | {due} | {status} | {owner} |".format(
+                    subject=row.get("Subject", ""),
+                    priority=row.get("Priority", ""),
+                    due=row.get("Due_Date", ""),
+                    status=row.get("Status", ""),
+                    owner=row.get(owner_key, ""),
+                )
+            )
+        return "\n".join(lines)
+    if not rows:
+        return "There are no overdue tasks in the current local data."
+    lines = [
+        "These are the highest-priority overdue tasks, sorted by priority and due date:",
+        "",
+        "| Task | Priority | Due Date | Status | Owner |",
+        "| :--- | :--- | :--- | :--- | :--- |",
+    ]
+    for row in rows:
+        lines.append(
+            "| {subject} | {priority} | {due} | {status} | {owner} |".format(
+                subject=row.get("Subject", ""),
+                priority=row.get("Priority", ""),
+                due=row.get("Due_Date", ""),
+                status=row.get("Status", ""),
+                owner=row.get(owner_key, ""),
+            )
+        )
+    return "\n".join(lines)
+
+
 def safe_table_name(table: str) -> str:
     tables = {item["name"] for item in local_schema()}
     if table not in tables:
@@ -1237,6 +1297,23 @@ def answer_from_local(user_message: str) -> dict[str, Any]:
             "steps": steps + [
                 {
                     "name": "format_overdue_payments_answer",
+                    "input": {"question": user_message, "query_result": result},
+                    "output": {"answer": answer},
+                }
+            ],
+            "tool_input": {"question": user_message, "database": str(LOCAL_DB_PATH)},
+            "tool_output": result,
+            "timings_ms": {"total": round((time.perf_counter() - started) * 1000, 2)},
+            "native_function_call": True,
+        }
+        return {"answer": answer, "tool_name": "local_sql", "tool_result": result, "trace": trace}
+    if has_task_list_shape(result):
+        answer = format_task_list_answer(result, user_message)
+        trace = {
+            "tool_name": "local_sql",
+            "steps": steps + [
+                {
+                    "name": "format_task_list_answer",
                     "input": {"question": user_message, "query_result": result},
                     "output": {"answer": answer},
                 }
