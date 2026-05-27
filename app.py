@@ -1,3 +1,4 @@
+import ast
 import json
 import os
 import re
@@ -587,7 +588,8 @@ def local_function_tools() -> list[dict[str, Any]]:
                             "description": (
                                 "A safe SQLite SELECT query using exact table and column names. "
                                 "Do not use INSERT, UPDATE, DELETE, DROP, ALTER, CREATE, PRAGMA, ATTACH, or VACUUM. "
-                                "GROUP BY may contain only raw non-aggregate columns. Include LIMIT 50 unless returning aggregate rows."
+                                "GROUP BY may contain only raw non-aggregate columns. Include LIMIT 50 unless returning aggregate rows. "
+                                "For overdue invoice/payment lists, return Invoice_Status, Subject, Account_Name, Due_Date, Grand_Total, Balance."
                             ),
                         }
                     },
@@ -601,7 +603,10 @@ def local_function_tools() -> list[dict[str, Any]]:
                 "name": "python_analysis",
                 "description": (
                     "Run read-only Python analysis with pandas or Polars against the local CRM SQLite database. "
-                    "Use this for multi-table analysis, ranking, recommendations, risk assessment, or complex comparisons."
+                    "Use this for multi-table analysis, ranking, recommendations, risk assessment, or complex comparisons. "
+                    "For sales-pipeline weakest-stage analysis, load all Deal rows without SQL GROUP BY, exclude Closed Won/Closed Lost, "
+                    "compute value_at_risk = Amount * (1 - Probability/100), then stage risk_score = sum(value_at_risk) * (1 + avg(Sales_Cycle_Duration)/365). "
+                    "Rank open stages by total risk_score descending, not by per-deal risk."
                 ),
                 "parameters": {
                     "type": "object",
@@ -745,9 +750,17 @@ def choose_local_native_tool_call(
         "Do not answer directly. Never summarize the schema. Use only exact table and column names from the schema. "
         "If the user asks about politics, sports, geography, entertainment, weather, recipes, jokes, or anything outside local CRM data, "
         "call unsupported_question. If the CRM request is ambiguous, call clarification_needed. "
+        "For unsupported_question and clarification_needed, write the reason/question in the same language as the user. "
         "For simple counts/totals/lists use local_sql. For multi-step analysis, rankings, recommendations, risk, focus, or comparisons use python_analysis. "
-        "For overdue payments use Invoices where Due_Date < date('now'). For sales revenue use Deals.Amount. "
-        "For top accounts by revenue, use Accounts plus Deals via Account_Name when useful. "
+        "When generating python_analysis code, prefer loading raw rows with SELECT column lists and doing grouping in pandas/Polars. "
+        "Do not use SQL GROUP BY unless every selected non-aggregate column is included in GROUP BY. "
+        "For weakest sales-pipeline stage, do not infer funnel transitions from stage order; compute stage risk_score = sum(value_at_risk) * (1 + avg(Sales_Cycle_Duration)/365) "
+        "for open Deals stages and rank by total risk_score descending, not by per-deal averages. "
+        "For overdue payments use local_sql on Invoices and select Invoice_Status, Subject, Account_Name, Due_Date, Grand_Total, Balance; "
+        "filter date(Due_Date) < date('now'), Balance > 0, Balance <= Grand_Total, and exclude cancelled/draft invoice statuses. "
+        "For total sales revenue, use local_sql and sum Deals.Amount across all Deals; do not exclude Closed Lost or any stage unless the user explicitly asks for won/open revenue. "
+        "For top accounts by revenue contribution, local_sql can group Deals by Account_Name and compute SUM(Amount), COUNT(*), "
+        "and revenue contribution as SUM(Amount) * 100.0 / (SELECT SUM(Amount) FROM Deals). "
         "For industry focus, compare Leads or Accounts by Industry using available revenue/count fields. "
         "Your whole response must be a single tool call."
     )
@@ -789,153 +802,13 @@ def schema_prompt(schema: list[dict[str, Any]]) -> str:
     return "\n".join(lines)
 
 
-DOMAIN_TERMS = {
-    "crm",
-    "lead",
-    "leads",
-    "deal",
-    "deals",
-    "account",
-    "accounts",
-    "contact",
-    "contacts",
-    "task",
-    "tasks",
-    "call",
-    "calls",
-    "activity",
-    "activities",
-    "revenue",
-    "amount",
-    "stage",
-    "status",
-    "industry",
-    "employee",
-    "employees",
-    "probability",
-    "pipeline",
-    "source",
-    "campaign",
-    "campaigns",
-    "product",
-    "products",
-    "vendor",
-    "vendors",
-    "quote",
-    "quotes",
-    "order",
-    "orders",
-    "invoice",
-    "invoices",
-    "case",
-    "cases",
-    "solution",
-    "solutions",
-    "note",
-    "notes",
-    "price",
-    "stock",
-    "inventory",
-    "employee",
-    "employees",
-    "owner",
-    "owners",
-    "department",
-    "departments",
-    "role",
-    "roles",
-    "team",
-    "teams",
-    "manager",
-    "managers",
-    "payment",
-    "payments",
-    "overdue",
-    "invoice",
-    "invoices",
-    "due",
-    "balance",
-    "grand_total",
-    "billing",
-}
-
-
-UNSUPPORTED_TERMS = {
-    "profit": "No profit, cost, margin, or expense fields exist in the local CRM schema.",
-    "margin": "No profit, cost, margin, or expense fields exist in the local CRM schema.",
-    "cost": "No profit, cost, margin, or expense fields exist in the local CRM schema.",
-    "expense": "No profit, cost, margin, or expense fields exist in the local CRM schema.",
-    "customer satisfaction": "No customer satisfaction or survey fields exist in the local CRM schema.",
-    "satisfaction": "No customer satisfaction or survey fields exist in the local CRM schema.",
-    "churn": "No churn, subscription, renewal, or cancellation fields exist in the local CRM schema.",
-    "subscription": "No subscription fields exist in the local CRM schema.",
-    "weather": "Weather data is not present in the local CRM database.",
-    "president": "Political or government information is not available in the local CRM schema.",
-    "prime minister": "Political or government information is not available in the local CRM schema.",
-    "football": "Sports data is not available in the local CRM schema.",
-    "soccer": "Sports data is not available in the local CRM schema.",
-    "match": "Sports or game data is not available in the local CRM schema.",
-    "premier league": "Sports data is not available in the local CRM schema.",
-    "movie": "Entertainment data is not available in the local CRM schema.",
-    "song": "Entertainment data is not available in the local CRM schema.",
-    "poem": "Creative writing is not available in the local CRM schema.",
-    "joke": "Entertainment is not available in the local CRM schema.",
-    "capital of": "Geographic information is not available in the local CRM schema.",
-    "population": "Demographic data is not available in the local CRM schema.",
-    "recipe": "Food or recipe data is not available in the local CRM schema.",
-    "عاصمة": "Geographic information is not available in the local CRM schema.",
-    "رئيس": "Political information is not available in the local CRM schema.",
-    "قصيدة": "Creative writing is not available in the local CRM schema.",
-    "نكتة": "Entertainment is not available in the local CRM schema.",
-}
-
-
-def clarification_question_reason(user_message: str, schema: list[dict[str, Any]]) -> str | None:
-    text = user_message.lower().strip()
-    vague_metric_words = ["best", "better", "performance", "performing", "successful", "success"]
-    metric_words = [
-        "revenue",
-        "amount",
-        "count",
-        "volume",
-        "probability",
-        "conversion",
-        "weighted",
-        "average",
-        "total",
-        "duration",
-        "employees",
-        "pipeline",
-    ]
-
-    if re.fullmatch(r"(which one|which is better|what is better|show performance|compare them)\??", text):
-        return "Please specify what entities and metric to compare, for example deals by amount, leads by revenue, or accounts by employees."
-
-    if any(word in text for word in vague_metric_words) and not any(word in text for word in metric_words):
-        return "Please specify the success metric, such as revenue, deal amount, probability, lead count, conversion proxy, or activity volume."
-
-    if "campaign" in text and any(word in text for word in vague_metric_words) and not any(word in text for word in metric_words):
-        return "Please specify how to judge campaigns, for example by deal count, total amount, average probability, or weighted pipeline."
-
-    return None
-
-
 def uses_arabic(text: str) -> bool:
     return any("\u0600" <= char <= "\u06ff" for char in text)
 
 
 def localized_unsupported_answer(user_message: str, reason: str) -> str:
     if uses_arabic(user_message):
-        lower_reason = reason.lower()
-        if any(token in lower_reason for token in ["geography", "geographic", "capital"]):
-            detail = "السؤال عن معلومات جغرافية خارج بيانات CRM."
-        elif any(token in lower_reason for token in ["politic", "president", "government"]):
-            detail = "السؤال عن معلومات سياسية خارج بيانات CRM."
-        elif any(token in lower_reason for token in ["sport", "football", "match", "premier league"]):
-            detail = "السؤال عن معلومات رياضية خارج بيانات CRM."
-        else:
-            detail = "السؤال خارج نطاق بيانات CRM المحلية."
-        return f"لا أستطيع الإجابة عن هذا من قاعدة بيانات CRM المحلية. {detail}"
+        return "لا أستطيع الإجابة عن هذا من قاعدة بيانات CRM المحلية. السؤال خارج نطاق بيانات CRM المحلية."
     return f"I can't answer that from the local CRM database. {reason}"
 
 
@@ -943,83 +816,6 @@ def localized_clarification_answer(user_message: str, question: str) -> str:
     if uses_arabic(user_message):
         return question if uses_arabic(question) else "أحتاج إلى توضيح أكثر: ما المقياس أو النطاق الذي تريد تحليله؟"
     return question
-
-
-def unsupported_question_reason(user_message: str, schema: list[dict[str, Any]]) -> str | None:
-    text = user_message.lower()
-    # Arabic unsupported terms
-    arabic_unsupported = {
-        'عاصمة': 'Geographic information is not available in the CRM schema.',
-        'رئيس الوزراء': 'Political information is not available in the CRM schema.',
-        'رئيس الدولة': 'Political information is not available in the CRM schema.',
-        'كرة القدم': 'Sports data is not available in the CRM schema.',
-        'مباراة': 'Sports data is not available in the CRM schema.',
-        'قصيدة': 'Creative writing is not available in the CRM schema.',
-        'نكتة': 'Entertainment is not available in the CRM schema.',
-        'اكتب لي': 'Creative writing is not available in the CRM schema.',
-        'من هو': 'General knowledge is not available in the CRM schema.',
-        'ما هي عاصمة': 'Geographic information is not available in the CRM schema.',
-    }
-    for term, reason in arabic_unsupported.items():
-        if term in text:
-            return reason
-
-    # Arabic domain terms - if no arabic business term found, block it
-    arabic_business_terms = {
-        'عميل', 'عملاء', 'صفقة', 'صفقات', 'حساب', 'فاتورة', 'طلب',
-        'منتج', 'مبيعات', 'إيراد', 'مجموع', 'متوسط', 'تحليل', 'حلل',
-        'مدفوعات', 'متأخرة', 'فواتير', 'مستحقة', 'دفع', 'سداد','قارن', 'أعلى', 'أقل', 'خط', 'مراحل', 'عروض', 'توقع'
-    }
-    # Check if Arabic text has no business terms
-    arabic_chars = bool(re.search(r'[\u0600-\u06FF]', text))
-    if arabic_chars:
-        tokens = set(re.findall(r'[\u0600-\u06FF]{2,}', text))
-        if tokens and not any(term in text for term in arabic_business_terms):
-            return "This question is not related to CRM business data."
-        for term, reason in UNSUPPORTED_TERMS.items():
-            if term in text:
-                return reason
-
-    schema_terms = set(DOMAIN_TERMS)
-    for table in schema:
-        schema_terms.add(table["name"].lower())
-        schema_terms.add(table["name"].lower().rstrip("s"))
-        for column in table["columns"]:
-            name = column["name"].lower()
-            schema_terms.add(name)
-            schema_terms.update(part for part in re.split(r"[_\W]+", name) if len(part) > 2)
-
-    tokens = {token for token in re.findall(r"[a-zA-Z_]{3,}", text)}
-    meaningful = tokens - {
-        "what",
-        "which",
-        "show",
-        "list",
-        "give",
-        "tell",
-        "about",
-        "from",
-        "with",
-        "have",
-        "does",
-        "were",
-        "their",
-        "them",
-        "most",
-        "least",
-        "best",
-        "worst",
-        "average",
-        "total",
-        "count",
-        "analyze",
-        "compare",
-        "calculate",
-    }
-    if meaningful and not any(token in schema_terms for token in meaningful):
-        return "The question does not appear to reference data available in the local CRM schema."
-
-    return None
 
 
 def is_read_only_sql(sql: str) -> bool:
@@ -1038,71 +834,6 @@ def aggregate_in_group_by(sql: str) -> bool:
     return bool(re.search(r"\b(count|sum|avg|min|max|total)\s*\(", group_clause, flags=re.I))
 
 
-def choose_local_sql(user_message: str, schema: list[dict[str, Any]], previous_error: str | None = None) -> str:
-    text = user_message.lower()
-    
-    # Deterministic overrides
-    if any(w in text for w in ['overdue', 'overdue payment', 'overdue invoice', 'المتأخرة', 'متأخر', 'المتأخر', 'مدفوعات متأخرة', 'فواتير متأخرة']):
-        return (
-            "SELECT Invoice_Status, Subject, Account_Name, Due_Date, Grand_Total, Balance "
-            "FROM Invoices "
-            "WHERE date(Due_Date) < date('now') "
-            "AND Balance > 0 "
-            "AND Balance <= Grand_Total "
-            "AND lower(Invoice_Status) NOT IN ('cancelled', 'draft') "
-            "ORDER BY date(Due_Date) ASC "
-            "LIMIT 10"
-        )
-
-    table_names = {table["name"].lower(): table["name"] for table in schema}
-
-    for lower_name, table_name in table_names.items():
-        singular = lower_name[:-1] if lower_name.endswith("s") else lower_name
-        if ("count" in text or "how many" in text) and (lower_name in text or singular in text):
-            return f'select count(*) as count from "{table_name}"'
-        if any(word in text for word in ["show", "list", "sample", "examples"]) and (
-            lower_name in text or singular in text
-        ):
-            return f'select * from "{table_name}" limit 10'
-
-    content = ollama_chat(
-        [
-            {
-                "role": "system",
-                "content": (
-                    "Generate one read-only SQLite SELECT query for the user's CRM question. "
-                    "Return only JSON with key sql. Use only exact table and column names from the provided schema. "
-                    "Do not invent tables, columns, relationships, or renamed fields. "
-                    "GROUP BY may contain only raw non-aggregate columns. Never put COUNT, SUM, AVG, MIN, MAX, "
-                    "or calculated aggregate expressions in the GROUP BY clause. Put aggregate expressions in SELECT, "
-                    "HAVING, or ORDER BY instead. "
-                    "Always include a LIMIT of 50 or less unless the query returns aggregate rows. "
-                    "When asked about 'industry', always use the Industry column from the Accounts table, never from Lead_Status or any status field. "
-                    "When asked about 'overdue payments' or 'overdue invoices', use the Invoices table with Due_Date < date('now') to find overdue records. The status column is Invoice_Status. "
-                    "Only answer questions that are strictly about CRM business data. "
-                    "If the question is about sports, politics, entertainment, geography, or any non-business topic, "
-                    "do not attempt to answer it from the database. "
-                    "When asked about 'industry', always use the Industry column from the Accounts table, never from Lead_Status."
-                ),
-            },
-            {
-                "role": "user",
-                "content": json.dumps(
-                    {"question": user_message, "schema": schema_prompt(schema), "previous_error": previous_error},
-                    ensure_ascii=False,
-                ),
-            },
-        ],
-        json_mode=True,
-    )
-    sql = parse_json_object(content).get("sql", "")
-    if not isinstance(sql, str) or not is_read_only_sql(sql):
-        raise RuntimeError(f"Ollama generated unsafe or invalid SQL: {sql}")
-    if " limit " not in sql.lower() and not re.search(r"\bcount\s*\(|\bsum\s*\(|\bavg\s*\(|\bmin\s*\(|\bmax\s*\(", sql, re.I):
-        sql = f"{sql.rstrip(';')} limit 50"
-    return sql
-
-
 def execute_local_sql(sql: str) -> dict[str, Any]:
     if not is_read_only_sql(sql):
         raise RuntimeError("Only read-only SELECT queries are allowed.")
@@ -1115,24 +846,25 @@ def execute_local_sql(sql: str) -> dict[str, Any]:
         con.close()
 
 
-def is_overdue_payments_question(user_message: str) -> bool:
-    text = user_message.lower()
-    return any(
-        token in text
-        for token in [
-            "overdue",
-            "overdue payment",
-            "overdue invoice",
-            "المتأخرة",
-            "متأخر",
-            "المدفوعات المتأخرة",
-            "فواتير متأخرة",
-        ]
-    )
+def has_overdue_invoice_shape(result: dict[str, Any]) -> bool:
+    rows = result.get("rows") or []
+    if not rows:
+        sql = str(result.get("sql") or "").lower()
+        return "invoices" in sql and "due_date" in sql and "balance" in sql
+    columns = set(rows[0])
+    return {"Invoice_Status", "Subject", "Account_Name", "Due_Date", "Grand_Total", "Balance"}.issubset(columns)
 
 
 def format_overdue_payments_answer(result: dict[str, Any], user_message: str) -> str:
-    rows = result.get("rows") or []
+    rows = []
+    for row in result.get("rows") or []:
+        status = str(row.get("Invoice_Status") or "").lower()
+        grand_total = float(row.get("Grand_Total") or 0)
+        balance = float(row.get("Balance") or 0)
+        if status in {"cancelled", "draft"} or balance <= 0 or grand_total <= 0 or balance > grand_total:
+            continue
+        rows.append(row)
+    rows = sorted(rows, key=lambda row: str(row.get("Due_Date") or ""))[:10]
     if uses_arabic(user_message):
         if not rows:
             return "لا توجد مدفوعات متأخرة حسب البيانات المحلية الحالية."
@@ -1209,101 +941,6 @@ def local_table_rows(table: str, limit: int, offset: int) -> dict[str, Any]:
         con.close()
 
 
-def wants_python_tool(user_message: str) -> bool:
-    text = user_message.lower()
-    return any(
-        token in text
-        for token in [
-            "python",
-            "pandas",
-            "polars",
-            "dataframe",
-            "data frame",
-            "groupby",
-            "group by",
-            "correlation",
-            "plot",
-            "chart",
-            "analytics",
-            "analysis",
-            "analyze",
-            "breakdown",
-            "distribution",
-            "trend",
-            "compare",
-            "average",
-            "sum",
-            "total",
-            "highest",
-            "lowest",
-            "top ",
-            " by ",
-            "risk",
-            "risky",
-            "operation",
-            "operations",
-            "workload",
-            "quality",
-            "funnel",
-            "focus",
-            "recommend",
-            "recommendation",
-            "تحليل",
-            "حلل",
-            "إجمالي",
-            "إيرادات",
-            "مبيعات",
-            "متوسط",
-            "مجموع",
-            "أعلى",
-            "أقل",
-            "حسب",
-            "قطاع",
-            "مرحلة",
-            "عدد",
-            "كم",
-            "قارن",
-            "توزيع",
-            "اتجاه",
-            "أداء",
-            "تقرير",
-            "ملخص",
-            "خط المبيعات",
-            "أفضل",
-            "أسوأ",
-            "نسبة",
-            "تحليل",
-            "إجمالي",
-            "إيرادات",
-            "مبيعات",
-            "متوسط",
-            "مجموع",
-            "أعلى",
-            "أقل",
-            "حسب",
-            "قطاع",
-            "مرحلة",
-            "عدد",
-            "كم",
-            "حلل", 
-            "قارن",
-            "أعلى",
-            "أقل",
-            "متوسط",
-            "مجموع",
-            "توزيع",
-            "اتجاه",
-            "أداء",
-            "تقرير",
-            "ملخص",
-            "خط المبيعات",
-            "أفضل",
-            "أسوأ",
-            "نسبة",
-        ]
-    )
-
-
 def validate_python_script(code: str) -> None:
     blocked = [
         r"\bopen\s*\(",
@@ -1324,11 +961,16 @@ def validate_python_script(code: str) -> None:
         r"\bto_parquet\s*\(",
         r"\bto_database\s*\(",
         r"\bto_sql\s*\(",
-        r"\b(insert|update|delete|drop|alter|create|replace|truncate|attach|detach|pragma|vacuum)\b",
     ]
     for pattern in blocked:
         if re.search(pattern, code):
             raise RuntimeError(f"Python script contains a blocked operation: {pattern}")
+    tree = ast.parse(code)
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Constant) and isinstance(node.value, str):
+            text = node.value.strip()
+            if re.match(r"^(insert|update|delete|drop|alter|create|replace|truncate|attach|detach|pragma|vacuum)\b", text, re.I):
+                raise RuntimeError("Python script contains mutating SQL.")
 
 
 def generate_python_script(user_message: str, schema: list[dict[str, Any]], previous_error: str | None = None) -> str:
@@ -1429,457 +1071,6 @@ print(json.dumps({{"result": clean(result)}}, ensure_ascii=False, default=str))
     return {"code": code, "result": payload.get("result")}
 
 
-def deterministic_python_analysis(user_message: str) -> str | None:
-    text = user_message.lower()
-    wants_polars = "polars" in text
-
-    if "deal" in text and "stage" in text and "amount" in text and "probability" in text and any(
-        token in text for token in ["average", "avg", "mean"]
-    ):
-        if wants_polars:
-            return (
-                "import sqlite3\n"
-                "import pandas as pd\n"
-                "import polars as pl\n"
-                "con = sqlite3.connect(DB_PATH)\n"
-                "df = pd.read_sql_query('select Stage, Amount, Probability from Deals', con)\n"
-                "pl_df = pl.from_pandas(df)\n"
-                "result = pl_df.group_by('Stage').agg([pl.col('Amount').sum().alias('total_amount'), pl.col('Probability').mean().alias('avg_probability')]).sort('total_amount', descending=True).to_dicts()"
-            )
-        return (
-            "import sqlite3\n"
-            "import pandas as pd\n"
-            "con = sqlite3.connect(DB_PATH)\n"
-            "df = pd.read_sql_query('select Stage, Amount, Probability from Deals', con)\n"
-            "result = (df.groupby('Stage', as_index=False)\n"
-            "  .agg(total_amount=('Amount', 'sum'), avg_probability=('Probability', 'mean'))\n"
-            "  .sort_values('total_amount', ascending=False)\n"
-            "  .to_dict(orient='records'))"
-        )
-
-    if any(token in text for token in ["risk", "risky", "sales operation", "focus next week", "workload", "حلل", "مسار المبيعات", "أضعف", "مرحلة"]):
-        return (
-            "import sqlite3\n"
-            "import pandas as pd\n"
-            "con = sqlite3.connect(DB_PATH)\n"
-            "deals = pd.read_sql_query('select Stage, Amount, Probability, Sales_Cycle_Duration from Deals', con)\n"
-            "open_deals = deals[~deals['Stage'].str.startswith('Closed', na=False)].copy()\n"
-            "open_deals['weighted_pipeline'] = open_deals['Amount'] * open_deals['Probability'] / 100\n"
-            "open_deals['value_at_risk'] = open_deals['Amount'] * (1 - open_deals['Probability'] / 100)\n"
-            "summary = open_deals.groupby('Stage', as_index=False).agg(deal_count=('Stage','size'), total_amount=('Amount','sum'), avg_probability=('Probability','mean'), weighted_pipeline=('weighted_pipeline','sum'), value_at_risk=('value_at_risk','sum'), avg_cycle_days=('Sales_Cycle_Duration','mean'))\n"
-            "summary['risk_score'] = summary['value_at_risk'] * (1 + summary['avg_cycle_days'] / 365)\n"
-            "summary = summary.sort_values('risk_score', ascending=False).round(2)\n"
-            "weakest = summary.iloc[0].to_dict()\n"
-            "result = {\n"
-            "  'definition': 'Weakest stage is the open sales stage with the highest risk score. Risk score combines value at risk and average sales-cycle duration; closed stages are excluded.',\n"
-            "  'weakest_stage': weakest,\n"
-            "  'stage_risk_ranking': summary.to_dict(orient='records'),\n"
-            "  'recommended_action': f\"Prioritize {weakest['Stage']} because it combines high value at risk with a long cycle time.\"\n"
-            "}"
-        )
-
-    if "deal" in text and "stage" in text and any(token in text for token in ["amount", "revenue", "total", "sum"]):
-        if wants_polars:
-            return (
-                "import sqlite3\n"
-                "import pandas as pd\n"
-                "import polars as pl\n"
-                "con = sqlite3.connect(DB_PATH)\n"
-                "df = pd.read_sql_query('select Stage, Amount from Deals', con)\n"
-                "pl_df = pl.from_pandas(df)\n"
-                "result = pl_df.group_by('Stage').agg(pl.col('Amount').sum().alias('total_amount')).sort('total_amount', descending=True).to_dicts()"
-            )
-        return (
-            "import sqlite3\n"
-            "import pandas as pd\n"
-            "con = sqlite3.connect(DB_PATH)\n"
-            "df = pd.read_sql_query('select Stage, Amount from Deals', con)\n"
-            "result = df.groupby('Stage', as_index=False)['Amount'].sum().rename(columns={'Amount': 'total_amount'}).sort_values('total_amount', ascending=False).to_dict(orient='records')"
-        )
-
-    if "deal" in text and "stage" in text and any(token in text for token in ["count", "many", "number"]):
-        if wants_polars:
-            return (
-                "import sqlite3\n"
-                "import pandas as pd\n"
-                "import polars as pl\n"
-                "con = sqlite3.connect(DB_PATH)\n"
-                "df = pd.read_sql_query('select Stage from Deals', con)\n"
-                "pl_df = pl.from_pandas(df)\n"
-                "result = pl_df.group_by('Stage').len(name='count').sort('count', descending=True).to_dicts()"
-            )
-        return (
-            "import sqlite3\n"
-            "import pandas as pd\n"
-            "con = sqlite3.connect(DB_PATH)\n"
-            "df = pd.read_sql_query('select Stage from Deals', con)\n"
-            "result = df.groupby('Stage').size().reset_index(name='count').sort_values('count', ascending=False).to_dict(orient='records')"
-        )
-
-    if ("lead" in text and "industry" in text or "العملاء المحتملين" in text and "القطاع" in text) and (
-        "annual_revenue" in text
-        or "annual revenue" in text
-        or "employee count" in text
-        or "employees" in text
-        or "القطاع" in text
-        or "نركز" in text
-    ):
-        return (
-            "import sqlite3\n"
-            "import pandas as pd\n"
-            "con = sqlite3.connect(DB_PATH)\n"
-            "df = pd.read_sql_query('select Industry, Annual_Revenue, No_of_Employees from Leads', con)\n"
-            "summary = (df.groupby('Industry', as_index=False)\n"
-            "  .agg(lead_count=('Industry', 'size'), avg_annual_revenue=('Annual_Revenue', 'mean'), total_annual_revenue=('Annual_Revenue', 'sum'), avg_employee_count=('No_of_Employees', 'mean')))\n"
-            "summary['focus_score'] = summary['lead_count'] * summary['avg_annual_revenue']\n"
-            "summary = summary.sort_values('focus_score', ascending=False)\n"
-            "top = summary.iloc[0].to_dict()\n"
-            "result = {\n"
-            "  'recommended_focus_industry': top['Industry'],\n"
-            "  'reason': 'Highest combined score from lead volume and average annual revenue.',\n"
-            "  'industry_comparison': summary.round(2).to_dict(orient='records'),\n"
-            "  'next_action': f\"Focus outreach on {top['Industry']} leads first, then review the second-ranked industry for follow-up capacity.\"\n"
-            "}"
-        )
-
-    if "lead" in text and "industry" in text and any(token in text for token in ["count", "many", "number"]):
-        return (
-            "import sqlite3\n"
-            "import pandas as pd\n"
-            "con = sqlite3.connect(DB_PATH)\n"
-            "df = pd.read_sql_query('select Industry from Leads', con)\n"
-            "result = df.groupby('Industry').size().reset_index(name='count').sort_values('count', ascending=False).to_dict(orient='records')"
-        )
-
-    if "الحسابات" in text and any(token in text for token in ["أفضل", "أداء", "الإيرادات"]):
-        return (
-            "import sqlite3\n"
-            "import pandas as pd\n"
-            "con = sqlite3.connect(DB_PATH)\n"
-            "deals = pd.read_sql_query('select Account_Name, Amount, Stage, Probability from Deals', con)\n"
-            "deals['weighted_revenue'] = deals['Amount'] * deals['Probability'] / 100\n"
-            "summary = (deals.groupby('Account_Name', as_index=False)\n"
-            "  .agg(deal_count=('Account_Name','size'), total_revenue=('Amount','sum'), weighted_revenue=('weighted_revenue','sum'), avg_probability=('Probability','mean'))\n"
-            "  .sort_values('total_revenue', ascending=False))\n"
-            "total = float(summary['total_revenue'].sum())\n"
-            "summary['revenue_contribution_percent'] = (summary['total_revenue'] / total * 100).round(2)\n"
-            "top = summary.head(10).round(2)\n"
-            "result = {\n"
-            "  'top_accounts': top.to_dict(orient='records'),\n"
-            "  'top_3_revenue_contribution_percent': round(float(summary.head(3)['total_revenue'].sum() / total * 100), 2),\n"
-            "  'ranking_metric': 'total_revenue from Deals.Amount'\n"
-            "}"
-        )
-
-    return None
-
-
-def answer_from_local(user_message: str) -> dict[str, Any]:
-    schema = local_schema()
-    clarification_reason = clarification_question_reason(user_message, schema)
-    if clarification_reason:
-        answer = localized_clarification_answer(user_message, clarification_reason)
-        trace = {
-            "tool_name": "clarification_needed",
-            "steps": [
-                {
-                    "name": "route",
-                    "tool": "clarification_needed",
-                    "reason": "Question is underspecified; running analysis would require choosing an unstated metric.",
-                    "input": {"question": user_message},
-                },
-                {
-                    "name": "inspect_local_schema",
-                    "tool": "local_schema",
-                    "input": {"database": str(LOCAL_DB_PATH)},
-                    "output": {
-                        "tables": [
-                            {
-                                "name": table["name"],
-                                "row_count": table["row_count"],
-                                "columns": [column["name"] for column in table["columns"]],
-                            }
-                            for table in schema
-                        ]
-                    },
-                },
-                {"name": "ask_for_clarification", "output": {"reason": clarification_reason}},
-            ],
-            "tool_input": {"question": user_message, "database": str(LOCAL_DB_PATH)},
-            "tool_output": {"reason": clarification_reason},
-            "timings_ms": {"total": 0},
-        }
-        return {
-            "answer": answer,
-            "tool_name": "clarification_needed",
-            "tool_result": {"reason": clarification_reason},
-            "trace": trace,
-        }
-
-    unsupported_reason = unsupported_question_reason(user_message, schema)
-    if unsupported_reason:
-        trace = {
-            "tool_name": "unsupported_question",
-            "steps": [
-                {
-                    "name": "route",
-                    "tool": "unsupported_question",
-                    "reason": "Question cannot be answered from available local CRM tables/columns.",
-                    "input": {"question": user_message},
-                },
-                {
-                    "name": "inspect_local_schema",
-                    "tool": "local_schema",
-                    "input": {"database": str(LOCAL_DB_PATH)},
-                    "output": {
-                        "tables": [
-                            {
-                                "name": table["name"],
-                                "row_count": table["row_count"],
-                                "columns": [column["name"] for column in table["columns"]],
-                            }
-                            for table in schema
-                        ]
-                    },
-                },
-                {
-                    "name": "unsupported_answer",
-                    "output": {"reason": unsupported_reason},
-                },
-            ],
-            "tool_input": {"question": user_message, "database": str(LOCAL_DB_PATH)},
-            "tool_output": {"reason": unsupported_reason},
-            "timings_ms": {"total": 0},
-        }
-        answer = localized_unsupported_answer(user_message, unsupported_reason)
-        return {"answer": answer, "tool_name": "unsupported_question", "tool_result": {"reason": unsupported_reason}, "trace": trace}
-
-    if wants_python_tool(user_message):
-        started = time.perf_counter()
-        steps = [
-            {
-                "name": "route",
-                "tool": "python_analysis",
-                "reason": "Prompt matched analytical/dataframe keywords.",
-                "input": {"question": user_message},
-            }
-        ]
-        schema_step_started = time.perf_counter()
-        steps.append(
-            {
-                "name": "inspect_local_schema",
-                "tool": "local_schema",
-                "input": {"database": str(LOCAL_DB_PATH)},
-                "output": {
-                    "tables": [
-                        {
-                            "name": table["name"],
-                            "row_count": table["row_count"],
-                            "columns": [column["name"] for column in table["columns"]],
-                        }
-                        for table in schema
-                    ]
-                },
-                "duration_ms": round((time.perf_counter() - schema_step_started) * 1000, 2),
-            }
-        )
-        code_source = "ollama_generated"
-        try:
-            code = generate_python_script(user_message, schema)
-        except Exception as exc:
-            fallback = deterministic_python_analysis(user_message)
-            if not fallback:
-                raise
-            code = fallback
-            code_source = "deterministic_fallback"
-            steps.append({"name": "code_generation_error", "error": str(exc)})
-        generated_at = time.perf_counter()
-        steps.append(
-            {
-                "name": "generate_python_code",
-                "source": code_source,
-                "output": {"code": code},
-                "duration_ms": round((generated_at - started) * 1000, 2),
-            }
-        )
-        try:
-            result = run_python_analysis(code)
-            repair_error = None
-        except Exception as exc:
-            repair_error = str(exc)
-            steps.append({"name": "python_execution_error", "error": repair_error, "input": {"code": code}})
-            fallback = deterministic_python_analysis(user_message)
-            if fallback and fallback != code:
-                code = fallback
-                steps.append({"name": "repair_python_code", "source": "deterministic_fallback", "output": {"code": code}})
-            else:
-                code = generate_python_script(user_message, schema, previous_error=repair_error)
-                steps.append({"name": "repair_python_code", "source": "ollama_generated", "output": {"code": code}})
-            result = run_python_analysis(code)
-        executed_at = time.perf_counter()
-        steps.append(
-            {
-                "name": "execute_python_analysis",
-                "input": {"database": str(LOCAL_DB_PATH), "code": code},
-                "output": result,
-                "duration_ms": round((executed_at - generated_at) * 1000, 2),
-            }
-        )
-        answer = ollama_chat(
-            [
-                {
-                    "role": "system",
-                    "content": (
-                        "Answer only from the provided Python/pandas/Polars analysis result. "
-                        "If the result does not contain enough evidence to answer the user's question, say exactly what is missing. "
-                        "Do not infer, assume, or invent tables, columns, records, trends, or causes not shown in the result. "
-                        "Be concise and include numbers/group labels when present. "
-                        "Do not mention SQL, Python, pandas, Polars, code, tool names, traces, or implementation details unless the user explicitly asks for them."
-                    ),
-                },
-                {
-                    "role": "user",
-                    "content": json.dumps(
-                        {"question": user_message, "analysis": result},
-                        ensure_ascii=False,
-                    ),
-                },
-            ]
-        )
-        finished_at = time.perf_counter()
-        steps.append(
-            {
-                "name": "generate_answer",
-                "input": {"question": user_message, "analysis_result": result},
-                "output": {"answer": answer},
-                "duration_ms": round((finished_at - executed_at) * 1000, 2),
-            }
-        )
-        trace = {
-            "tool_name": "python_analysis",
-            "steps": steps,
-            "tool_input": {
-                "question": user_message,
-                "database": str(LOCAL_DB_PATH),
-                "generated_code": code,
-                "repaired_after_error": repair_error,
-            },
-            "tool_output": result,
-            "timings_ms": {
-                "code_generation": round((generated_at - started) * 1000, 2),
-                "python_execution": round((executed_at - generated_at) * 1000, 2),
-                "answer_generation": round((finished_at - executed_at) * 1000, 2),
-                "total": round((finished_at - started) * 1000, 2),
-            },
-        }
-        return {"answer": answer, "tool_name": "python_analysis", "tool_result": result, "trace": trace}
-
-    started = time.perf_counter()
-    steps = [
-        {
-            "name": "route",
-            "tool": "local_sql",
-            "reason": "Prompt did not require Python analysis.",
-            "input": {"question": user_message},
-        }
-    ]
-    schema_step_started = time.perf_counter()
-    steps.append(
-        {
-            "name": "inspect_local_schema",
-            "tool": "local_schema",
-            "input": {"database": str(LOCAL_DB_PATH)},
-            "output": {
-                "tables": [
-                    {
-                        "name": table["name"],
-                        "row_count": table["row_count"],
-                        "columns": [column["name"] for column in table["columns"]],
-                    }
-                    for table in schema
-                ]
-            },
-            "duration_ms": round((time.perf_counter() - schema_step_started) * 1000, 2),
-        }
-    )
-    sql_error = None
-    try:
-        sql = choose_local_sql(user_message, schema)
-        generated_at = time.perf_counter()
-        steps.append(
-            {
-                "name": "generate_sql",
-                "output": {"sql": sql},
-                "duration_ms": round((generated_at - started) * 1000, 2),
-            }
-        )
-        result = execute_local_sql(sql)
-    except Exception as exc:
-        sql_error = str(exc)
-        steps.append({"name": "sql_error", "error": sql_error})
-        sql = choose_local_sql(user_message, schema, previous_error=sql_error)
-        steps.append({"name": "repair_sql", "source": "ollama_generated", "output": {"sql": sql}})
-        result = execute_local_sql(sql)
-        generated_at = time.perf_counter()
-
-    executed_at = time.perf_counter()
-    steps.append(
-        {
-            "name": "execute_sql",
-            "input": {"database": str(LOCAL_DB_PATH), "sql": sql},
-            "output": result,
-            "duration_ms": round((executed_at - generated_at) * 1000, 2),
-        }
-    )
-    answer = ollama_chat(
-        [
-            {
-                "role": "system",
-                "content": (
-                    "Answer the user's CRM question from the SQLite query result. "
-                    "If the result does not contain enough evidence to answer the user's question, say exactly what is missing. "
-                    "Do not infer, assume, or invent tables, columns, records, trends, or causes not shown in the result. "
-                    "Be concise. Do not mention SQL, query text, database internals, tool names, traces, or implementation details unless the user explicitly asks for them."
-                ),
-            },
-            {
-                "role": "user",
-                "content": json.dumps(
-                    {"question": user_message, "query_result": result},
-                    ensure_ascii=False,
-                ),
-            },
-        ]
-    )
-    finished_at = time.perf_counter()
-    steps.append(
-        {
-            "name": "generate_answer",
-            "input": {"question": user_message, "query_result": result},
-            "output": {"answer": answer},
-            "duration_ms": round((finished_at - executed_at) * 1000, 2),
-        }
-    )
-    trace = {
-        "tool_name": "local_sql",
-        "steps": steps,
-        "tool_input": {
-            "question": user_message,
-            "database": str(LOCAL_DB_PATH),
-            "sql": sql,
-            "repaired_after_error": sql_error,
-        },
-        "tool_output": result,
-        "timings_ms": {
-            "sql_generation": round((generated_at - started) * 1000, 2),
-            "sql_execution": round((executed_at - generated_at) * 1000, 2),
-            "answer_generation": round((finished_at - executed_at) * 1000, 2),
-            "total": round((finished_at - started) * 1000, 2),
-        },
-    }
-    return {"answer": answer, "tool_name": "local_sql", "tool_result": result, "trace": trace}
-
-
 def answer_from_local(user_message: str) -> dict[str, Any]:
     schema = local_schema()
     started = time.perf_counter()
@@ -1906,34 +1097,10 @@ def answer_from_local(user_message: str) -> dict[str, Any]:
     )
 
     tool_started = time.perf_counter()
-    deterministic_unsupported = unsupported_question_reason(user_message, schema)
-    deterministic_clarification = clarification_question_reason(user_message, schema)
-    deterministic_code = deterministic_python_analysis(user_message)
     try:
         tool_name, tool_args, native_response = choose_local_native_tool_call(user_message, schema)
     except Exception as exc:
-        if deterministic_unsupported:
-            tool_name = "unsupported_question"
-            tool_args = {"reason": deterministic_unsupported}
-        elif deterministic_clarification:
-            tool_name = "clarification_needed"
-            tool_args = {"question": deterministic_clarification}
-        else:
-            if deterministic_code:
-                tool_name = "python_analysis"
-                tool_args = {"code": deterministic_code}
-            else:
-                tool_name = "local_sql"
-                tool_args = {"sql": choose_local_sql(user_message, schema, previous_error=str(exc))}
-        native_response = {"fallback_reason": str(exc)}
-    if deterministic_unsupported and tool_name not in {"unsupported_question", "clarification_needed"}:
-        tool_name = "unsupported_question"
-        tool_args = {"reason": deterministic_unsupported}
-    if deterministic_clarification and tool_name not in {"unsupported_question", "clarification_needed"}:
-        tool_name = "clarification_needed"
-        tool_args = {"question": deterministic_clarification}
-    if deterministic_code and tool_name == "python_analysis":
-        tool_args = {"code": deterministic_code}
+        raise RuntimeError(f"Ollama did not choose a valid tool call: {exc}") from exc
     steps.append(
         {
             "name": "native_function_call",
@@ -1977,11 +1144,7 @@ def answer_from_local(user_message: str) -> dict[str, Any]:
     if tool_name == "python_analysis":
         code = str(tool_args.get("code") or "").strip()
         if not code:
-            fallback = deterministic_python_analysis(user_message)
-            if not fallback:
-                raise RuntimeError("Native tool call selected python_analysis without code.")
-            code = fallback
-            steps.append({"name": "native_argument_repair", "source": "deterministic_fallback", "output": {"code": code}})
+            raise RuntimeError("Native tool call selected python_analysis without code.")
         try:
             validate_python_script(code)
             result = run_python_analysis(code)
@@ -1990,11 +1153,7 @@ def answer_from_local(user_message: str) -> dict[str, Any]:
             steps.append({"name": "execute_python_analysis", "input": {"database": str(LOCAL_DB_PATH), "code": code}, "error": str(exc)})
             tool_name_2, tool_args_2, _ = choose_local_native_tool_call(user_message, schema, previous_error=str(exc))
             if tool_name_2 != "python_analysis" or not tool_args_2.get("code"):
-                fallback = deterministic_python_analysis(user_message)
-                if not fallback:
-                    raise
-                code = fallback
-                repair_source = "deterministic_fallback"
+                raise RuntimeError("Ollama did not repair the python_analysis call.")
             else:
                 code = str(tool_args_2["code"])
                 repair_source = "ollama_native_tool_call"
@@ -2002,12 +1161,7 @@ def answer_from_local(user_message: str) -> dict[str, Any]:
                 validate_python_script(code)
                 result = run_python_analysis(code)
             except Exception:
-                fallback = deterministic_python_analysis(user_message)
-                if not fallback:
-                    raise
-                code = fallback
-                validate_python_script(code)
-                result = run_python_analysis(code)
+                raise
             steps.append(
                 {
                     "name": "repair_python_analysis",
@@ -2042,11 +1196,8 @@ def answer_from_local(user_message: str) -> dict[str, Any]:
         return {"answer": answer, "tool_name": "python_analysis", "tool_result": result, "trace": trace}
 
     sql = str(tool_args.get("sql") or "").strip()
-    if is_overdue_payments_question(user_message):
-        sql = choose_local_sql(user_message, schema)
     if not sql:
-        sql = choose_local_sql(user_message, schema)
-        steps.append({"name": "native_argument_repair", "source": "legacy_sql_generator", "output": {"sql": sql}})
+        raise RuntimeError("Native tool call selected local_sql without sql.")
     if " limit " not in sql.lower() and not re.search(r"\bcount\s*\(|\bsum\s*\(|\bavg\s*\(|\bmin\s*\(|\bmax\s*\(", sql, re.I):
         sql = f"{sql.rstrip(';')} limit 50"
     try:
@@ -2058,7 +1209,7 @@ def answer_from_local(user_message: str) -> dict[str, Any]:
         if tool_name_2 == "local_sql" and tool_args_2.get("sql"):
             sql = str(tool_args_2["sql"])
         else:
-            sql = choose_local_sql(user_message, schema, previous_error=str(exc))
+            raise RuntimeError("Ollama did not repair the local_sql call.")
         if " limit " not in sql.lower() and not re.search(r"\bcount\s*\(|\bsum\s*\(|\bavg\s*\(|\bmin\s*\(|\bmax\s*\(", sql, re.I):
             sql = f"{sql.rstrip(';')} limit 50"
         result = execute_local_sql(sql)
@@ -2072,7 +1223,7 @@ def answer_from_local(user_message: str) -> dict[str, Any]:
             }
         )
     steps.append({"name": "execute_sql", "tool": "local_sql", "input": {"database": str(LOCAL_DB_PATH), "sql": sql}, "output": result})
-    if is_overdue_payments_question(user_message):
+    if has_overdue_invoice_shape(result):
         answer = format_overdue_payments_answer(result, user_message)
         trace = {
             "tool_name": "local_sql",
