@@ -920,6 +920,31 @@ def clarification_question_reason(user_message: str, schema: list[dict[str, Any]
     return None
 
 
+def uses_arabic(text: str) -> bool:
+    return any("\u0600" <= char <= "\u06ff" for char in text)
+
+
+def localized_unsupported_answer(user_message: str, reason: str) -> str:
+    if uses_arabic(user_message):
+        lower_reason = reason.lower()
+        if any(token in lower_reason for token in ["geography", "geographic", "capital"]):
+            detail = "السؤال عن معلومات جغرافية خارج بيانات CRM."
+        elif any(token in lower_reason for token in ["politic", "president", "government"]):
+            detail = "السؤال عن معلومات سياسية خارج بيانات CRM."
+        elif any(token in lower_reason for token in ["sport", "football", "match", "premier league"]):
+            detail = "السؤال عن معلومات رياضية خارج بيانات CRM."
+        else:
+            detail = "السؤال خارج نطاق بيانات CRM المحلية."
+        return f"لا أستطيع الإجابة عن هذا من قاعدة بيانات CRM المحلية. {detail}"
+    return f"I can't answer that from the local CRM database. {reason}"
+
+
+def localized_clarification_answer(user_message: str, question: str) -> str:
+    if uses_arabic(user_message):
+        return question if uses_arabic(question) else "أحتاج إلى توضيح أكثر: ما المقياس أو النطاق الذي تريد تحليله؟"
+    return question
+
+
 def unsupported_question_reason(user_message: str, schema: list[dict[str, Any]]) -> str | None:
     text = user_message.lower()
     # Arabic unsupported terms
@@ -1018,7 +1043,16 @@ def choose_local_sql(user_message: str, schema: list[dict[str, Any]], previous_e
     
     # Deterministic overrides
     if any(w in text for w in ['overdue', 'overdue payment', 'overdue invoice', 'المتأخرة', 'متأخر', 'المتأخر', 'مدفوعات متأخرة', 'فواتير متأخرة']):
-        return "SELECT Subject, Account_Name, Grand_Total, Due_Date, Invoice_Status FROM Invoices WHERE Due_Date < date('now') ORDER BY Due_Date ASC LIMIT 50"
+        return (
+            "SELECT Invoice_Status, Subject, Account_Name, Due_Date, Grand_Total, Balance "
+            "FROM Invoices "
+            "WHERE date(Due_Date) < date('now') "
+            "AND Balance > 0 "
+            "AND Balance <= Grand_Total "
+            "AND lower(Invoice_Status) NOT IN ('cancelled', 'draft') "
+            "ORDER BY date(Due_Date) ASC "
+            "LIMIT 10"
+        )
 
     table_names = {table["name"].lower(): table["name"] for table in schema}
 
@@ -1079,6 +1113,71 @@ def execute_local_sql(sql: str) -> dict[str, Any]:
         return {"sql": sql, "rows": [dict(row) for row in rows], "row_count": len(rows)}
     finally:
         con.close()
+
+
+def is_overdue_payments_question(user_message: str) -> bool:
+    text = user_message.lower()
+    return any(
+        token in text
+        for token in [
+            "overdue",
+            "overdue payment",
+            "overdue invoice",
+            "المتأخرة",
+            "متأخر",
+            "المدفوعات المتأخرة",
+            "فواتير متأخرة",
+        ]
+    )
+
+
+def format_overdue_payments_answer(result: dict[str, Any], user_message: str) -> str:
+    rows = result.get("rows") or []
+    if uses_arabic(user_message):
+        if not rows:
+            return "لا توجد مدفوعات متأخرة حسب البيانات المحلية الحالية."
+        lines = [
+            "هذه أقدم المدفوعات المتأخرة غير الملغاة التي لديها رصيد متبق:",
+            "",
+            "| حالة الفاتورة | الموضوع | الحساب | تاريخ الاستحقاق | الإجمالي | الرصيد المتبقي |",
+            "| :--- | :--- | :--- | :--- | ---: | ---: |",
+        ]
+        for row in rows:
+            lines.append(
+                "| {status} | {subject} | {account} | {due} | {grand:,.2f} | {balance:,.2f} |".format(
+                    status=row.get("Invoice_Status", ""),
+                    subject=row.get("Subject", ""),
+                    account=row.get("Account_Name", ""),
+                    due=row.get("Due_Date", ""),
+                    grand=float(row.get("Grand_Total") or 0),
+                    balance=float(row.get("Balance") or 0),
+                )
+            )
+        lines.append("")
+        lines.append("تم استبعاد الفواتير الملغاة والمسودات، والترتيب حسب أقدم تاريخ استحقاق.")
+        return "\n".join(lines)
+    if not rows:
+        return "There are no overdue payments in the current local data."
+    lines = [
+        "These are the oldest non-cancelled overdue payments with a remaining balance:",
+        "",
+        "| Invoice Status | Subject | Account | Due Date | Grand Total | Balance |",
+        "| :--- | :--- | :--- | :--- | ---: | ---: |",
+    ]
+    for row in rows:
+        lines.append(
+            "| {status} | {subject} | {account} | {due} | {grand:,.2f} | {balance:,.2f} |".format(
+                status=row.get("Invoice_Status", ""),
+                subject=row.get("Subject", ""),
+                account=row.get("Account_Name", ""),
+                due=row.get("Due_Date", ""),
+                grand=float(row.get("Grand_Total") or 0),
+                balance=float(row.get("Balance") or 0),
+            )
+        )
+    lines.append("")
+    lines.append("Cancelled and draft invoices are excluded, sorted by oldest due date.")
+    return "\n".join(lines)
 
 
 def safe_table_name(table: str) -> str:
@@ -1364,15 +1463,18 @@ def deterministic_python_analysis(user_message: str) -> str | None:
             "import pandas as pd\n"
             "con = sqlite3.connect(DB_PATH)\n"
             "deals = pd.read_sql_query('select Stage, Amount, Probability, Sales_Cycle_Duration from Deals', con)\n"
-            "leads = pd.read_sql_query('select Lead_Status, Industry, Annual_Revenue, No_of_Employees from Leads', con)\n"
-            "tasks = pd.read_sql_query('select Status, Priority, Due_Date from Tasks', con)\n"
-            "calls = pd.read_sql_query('select Call_Status, Call_Duration, Call_Type from Calls', con)\n"
-            "deals['weighted_pipeline'] = deals['Amount'] * deals['Probability'] / 100\n"
+            "open_deals = deals[~deals['Stage'].str.startswith('Closed', na=False)].copy()\n"
+            "open_deals['weighted_pipeline'] = open_deals['Amount'] * open_deals['Probability'] / 100\n"
+            "open_deals['value_at_risk'] = open_deals['Amount'] * (1 - open_deals['Probability'] / 100)\n"
+            "summary = open_deals.groupby('Stage', as_index=False).agg(deal_count=('Stage','size'), total_amount=('Amount','sum'), avg_probability=('Probability','mean'), weighted_pipeline=('weighted_pipeline','sum'), value_at_risk=('value_at_risk','sum'), avg_cycle_days=('Sales_Cycle_Duration','mean'))\n"
+            "summary['risk_score'] = summary['value_at_risk'] * (1 + summary['avg_cycle_days'] / 365)\n"
+            "summary = summary.sort_values('risk_score', ascending=False).round(2)\n"
+            "weakest = summary.iloc[0].to_dict()\n"
             "result = {\n"
-            "  'deal_stage_risk': deals.groupby('Stage', as_index=False).agg(deal_count=('Stage','size'), total_amount=('Amount','sum'), avg_probability=('Probability','mean'), weighted_pipeline=('weighted_pipeline','sum'), avg_cycle_days=('Sales_Cycle_Duration','mean')).sort_values('weighted_pipeline', ascending=False).to_dict(orient='records'),\n"
-            "  'lead_quality': leads.groupby(['Lead_Status','Industry'], as_index=False).agg(lead_count=('Lead_Status','size'), avg_annual_revenue=('Annual_Revenue','mean'), avg_employees=('No_of_Employees','mean')).sort_values('avg_annual_revenue', ascending=False).head(10).to_dict(orient='records'),\n"
-            "  'task_workload': tasks.groupby(['Status','Priority'], as_index=False).size().rename(columns={'size':'task_count'}).sort_values('task_count', ascending=False).head(10).to_dict(orient='records'),\n"
-            "  'call_workload': calls.groupby(['Call_Status','Call_Type'], as_index=False).agg(call_count=('Call_Status','size'), avg_call_duration=('Call_Duration','mean')).sort_values('call_count', ascending=False).head(10).to_dict(orient='records')\n"
+            "  'definition': 'Weakest stage is the open sales stage with the highest risk score. Risk score combines value at risk and average sales-cycle duration; closed stages are excluded.',\n"
+            "  'weakest_stage': weakest,\n"
+            "  'stage_risk_ranking': summary.to_dict(orient='records'),\n"
+            "  'recommended_action': f\"Prioritize {weakest['Stage']} because it combines high value at risk with a long cycle time.\"\n"
             "}"
         )
 
@@ -1476,6 +1578,7 @@ def answer_from_local(user_message: str) -> dict[str, Any]:
     schema = local_schema()
     clarification_reason = clarification_question_reason(user_message, schema)
     if clarification_reason:
+        answer = localized_clarification_answer(user_message, clarification_reason)
         trace = {
             "tool_name": "clarification_needed",
             "steps": [
@@ -1507,7 +1610,7 @@ def answer_from_local(user_message: str) -> dict[str, Any]:
             "timings_ms": {"total": 0},
         }
         return {
-            "answer": clarification_reason,
+            "answer": answer,
             "tool_name": "clarification_needed",
             "tool_result": {"reason": clarification_reason},
             "trace": trace,
@@ -1548,7 +1651,7 @@ def answer_from_local(user_message: str) -> dict[str, Any]:
             "tool_output": {"reason": unsupported_reason},
             "timings_ms": {"total": 0},
         }
-        answer = f"I can't answer that from the local CRM database. {unsupported_reason}"
+        answer = localized_unsupported_answer(user_message, unsupported_reason)
         return {"answer": answer, "tool_name": "unsupported_question", "tool_result": {"reason": unsupported_reason}, "trace": trace}
 
     if wants_python_tool(user_message):
@@ -1844,7 +1947,10 @@ def answer_from_local(user_message: str) -> dict[str, Any]:
     )
 
     if tool_name == "clarification_needed":
-        answer = tool_args.get("question") or "Please clarify what metric or scope you want me to use."
+        answer = localized_clarification_answer(
+            user_message,
+            tool_args.get("question") or "Please clarify what metric or scope you want me to use.",
+        )
         trace = {
             "tool_name": tool_name,
             "steps": steps + [{"name": "ask_for_clarification", "output": {"question": answer}}],
@@ -1857,7 +1963,7 @@ def answer_from_local(user_message: str) -> dict[str, Any]:
 
     if tool_name == "unsupported_question":
         reason = tool_args.get("reason") or "The question cannot be answered from the local CRM schema."
-        answer = f"I can't answer that from the local CRM database. {reason}"
+        answer = localized_unsupported_answer(user_message, reason)
         trace = {
             "tool_name": tool_name,
             "steps": steps + [{"name": "unsupported_answer", "output": {"reason": reason}}],
@@ -1936,6 +2042,8 @@ def answer_from_local(user_message: str) -> dict[str, Any]:
         return {"answer": answer, "tool_name": "python_analysis", "tool_result": result, "trace": trace}
 
     sql = str(tool_args.get("sql") or "").strip()
+    if is_overdue_payments_question(user_message):
+        sql = choose_local_sql(user_message, schema)
     if not sql:
         sql = choose_local_sql(user_message, schema)
         steps.append({"name": "native_argument_repair", "source": "legacy_sql_generator", "output": {"sql": sql}})
@@ -1964,6 +2072,23 @@ def answer_from_local(user_message: str) -> dict[str, Any]:
             }
         )
     steps.append({"name": "execute_sql", "tool": "local_sql", "input": {"database": str(LOCAL_DB_PATH), "sql": sql}, "output": result})
+    if is_overdue_payments_question(user_message):
+        answer = format_overdue_payments_answer(result, user_message)
+        trace = {
+            "tool_name": "local_sql",
+            "steps": steps + [
+                {
+                    "name": "format_overdue_payments_answer",
+                    "input": {"question": user_message, "query_result": result},
+                    "output": {"answer": answer},
+                }
+            ],
+            "tool_input": {"question": user_message, "database": str(LOCAL_DB_PATH)},
+            "tool_output": result,
+            "timings_ms": {"total": round((time.perf_counter() - started) * 1000, 2)},
+            "native_function_call": True,
+        }
+        return {"answer": answer, "tool_name": "local_sql", "tool_result": result, "trace": trace}
     answer = ollama_chat(
         [
             {

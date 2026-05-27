@@ -17,6 +17,7 @@ COMPANIES = ["Northstar Trading", "Blue Peak Systems", "Urban Nest", "Cedar Labs
 PRODUCTS = ["CRM Starter Pack", "Analytics Dashboard", "Support Desk License", "Field Sales Mobile", "Automation Bundle"]
 CITIES = ["Dubai", "Abu Dhabi", "Sharjah", "Riyadh", "Doha", "London", "New York"]
 COUNTRIES = ["United Arab Emirates", "Saudi Arabia", "Qatar", "United Kingdom", "United States"]
+INDUSTRIES = ["Technology", "Finance", "Healthcare", "Retail", "Manufacturing", "Education", "Logistics"]
 LEAD_STATUSES = ["New", "Contacted", "Qualified", "Lost", "Converted"]
 DEAL_STAGES = ["Qualification", "Needs Analysis", "Proposal", "Negotiation", "Closed Won", "Closed Lost"]
 ORDER_STATUSES = ["Draft", "Confirmed", "Delivered", "Cancelled", "Invoiced"]
@@ -170,6 +171,8 @@ def fake_by_name(api_name: str) -> Any:
         return random.choice(ORDER_STATUSES)
     if "case" in lower and "status" in lower:
         return random.choice(CASE_STATUSES)
+    if lower == "industry" or lower.endswith("_industry"):
+        return random.choice(INDUSTRIES)
     if "status" in lower:
         return random.choice(LEAD_STATUSES)
     if "stage" in lower:
