@@ -1,4 +1,3 @@
-
 <!doctype html>
 <html lang="en">
 <head>
@@ -18,19 +17,39 @@
     header { display: flex; justify-content: space-between; gap: 18px; align-items: flex-start; margin-bottom: 18px; }
     h1 { font-size: 24px; margin: 0; }
     h2 { font-size: 16px; margin: 0 0 10px; }
+    h3 { font-size: 14px; margin: 0 0 8px; }
     .small { color: #52616b; font-size: 12px; line-height: 1.45; }
     .nav { display: flex; gap: 10px; margin-top: 0; justify-content: flex-start; }
-    .nav a { color: white; font-size: 15px; font-weight: 800; text-decoration: none; padding: 10px 15px; border: 1px solid rgba(47, 211, 255, 0.45); border-radius: 6px; background: rgba(20, 158, 231, 0.18); }
-    .nav a:hover { background: rgba(47, 211, 255, 0.28); }
+    .nav a, .button-link { color: white; font-size: 15px; font-weight: 800; text-decoration: none; padding: 10px 15px; border: 1px solid rgba(47, 211, 255, 0.45); border-radius: 6px; background: rgba(20, 158, 231, 0.18); }
+    .nav a:hover, .button-link:hover { background: rgba(47, 211, 255, 0.28); }
+    .summary { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin-bottom: 16px; }
+    .metric, .panel, .item { background: white; border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 10px 26px rgba(7, 33, 54, 0.06); }
+    .metric { padding: 14px; }
+    .metric span { display: block; color: #52616b; font-size: 12px; }
+    .metric strong { display: block; font-size: 24px; margin-top: 4px; }
+    .panel { padding: 16px; margin-bottom: 16px; }
+    .filters { display: grid; grid-template-columns: 1.2fr 1fr 1fr 1fr auto; gap: 10px; align-items: end; }
+    label { color: #52616b; display: grid; gap: 5px; font-size: 12px; font-weight: 800; }
+    input, select, button { border: 1px solid #c9d3d7; border-radius: 6px; padding: 9px 10px; font: inherit; background: white; }
+    button { background: #0b83cc; color: white; border-color: #0b83cc; cursor: pointer; font-weight: 800; }
+    .exports { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 12px; }
+    .exports a { color: #0a76ba; font-size: 13px; font-weight: 800; text-decoration: none; }
+    .chips { display: flex; flex-wrap: wrap; gap: 8px; }
+    .chip { background: #e8f5fc; border: 1px solid #cce8f7; border-radius: 999px; color: #0a4771; font-size: 12px; font-weight: 800; padding: 5px 9px; }
+    .groups { display: grid; gap: 10px; }
+    .group { border: 1px solid #e3edf3; border-radius: 8px; padding: 12px; background: #fbfdfe; }
     .items { display: grid; gap: 14px; }
-    .item { background: white; border: 1px solid var(--line); border-radius: 8px; padding: 16px; box-shadow: 0 10px 26px rgba(7, 33, 54, 0.06); }
+    .item { padding: 16px; }
+    .item.reviewed { opacity: 0.72; }
+    .item-head { display: flex; justify-content: space-between; gap: 16px; align-items: flex-start; }
     .grid { display: grid; grid-template-columns: 160px minmax(0, 1fr); gap: 8px; font-size: 13px; margin: 8px 0; }
     .diagnostic { border-top: 1px solid #edf1f3; padding-top: 12px; margin-top: 12px; }
-    pre { background: #061427; color: #f5fbff; padding: 12px; border-radius: 6px; overflow: auto; max-height: 360px; white-space: pre-wrap; }
+    .review-button { white-space: nowrap; }
+    pre { background: #061427; color: #f5fbff; padding: 12px; border-radius: 6px; overflow: auto; max-height: 260px; white-space: pre-wrap; }
     table { border-collapse: collapse; width: 100%; margin-top: 8px; font-size: 13px; }
     th, td { border: 1px solid #ccd6da; padding: 7px 8px; text-align: left; vertical-align: top; }
     th { background: #dff1fb; }
-    @media (max-width: 1040px) { .topbar-inner { grid-template-columns: 1fr; gap: 12px; } main { padding: 16px; } .nav { flex-wrap: wrap; } .grid { grid-template-columns: 1fr; } }
+    @media (max-width: 1040px) { .topbar-inner, .filters { grid-template-columns: 1fr; gap: 12px; } main { padding: 16px; } .nav, .exports { flex-wrap: wrap; } .summary { grid-template-columns: 1fr 1fr; } .grid, .item-head { grid-template-columns: 1fr; display: grid; } }
   </style>
 </head>
 <body>
@@ -45,18 +64,86 @@
   <header>
     <div>
       <h1>Disliked Responses</h1>
-      <div class="small">Hidden model diagnostics for responses users marked as not good enough.</div>
+      <div class="small">Review hidden diagnostics, export failure cases, and track which issues have been handled.</div>
     </div>
   </header>
+
+  <section class="summary">
+    <div class="metric"><span>Visible Items</span><strong>{{ summary.total }}</strong></div>
+    <div class="metric"><span>Open</span><strong>{{ summary.open }}</strong></div>
+    <div class="metric"><span>Reviewed</span><strong>{{ summary.reviewed }}</strong></div>
+    <div class="metric"><span>Issue Groups</span><strong>{{ summary.issue_groups|length }}</strong></div>
+  </section>
+
+  <section class="panel">
+    <form class="filters" method="get" action="/feedback">
+      <label>Search <input name="query" value="{{ filters.query }}" placeholder="Question, answer, diagnostic"></label>
+      <label>Tool
+        <select name="tool">
+          <option value="">All tools</option>
+          {% for tool in options.tools %}
+            <option value="{{ tool }}" {% if filters.tool == tool %}selected{% endif %}>{{ tool }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>Severity
+        <select name="severity">
+          <option value="">All severities</option>
+          {% for severity in options.severities %}
+            <option value="{{ severity }}" {% if filters.severity == severity %}selected{% endif %}>{{ severity }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>Status
+        <select name="status">
+          <option value="open" {% if filters.status == "open" %}selected{% endif %}>Open</option>
+          <option value="reviewed" {% if filters.status == "reviewed" %}selected{% endif %}>Reviewed</option>
+          <option value="all" {% if filters.status == "all" %}selected{% endif %}>All</option>
+        </select>
+      </label>
+      <button type="submit">Apply</button>
+    </form>
+    <div class="exports">
+      <a href="/feedback/export.csv?tool={{ filters.tool }}&severity={{ filters.severity }}&status={{ filters.status }}&query={{ filters.query }}">Export CSV</a>
+      <a href="/feedback/export.json?tool={{ filters.tool }}&severity={{ filters.severity }}&status={{ filters.status }}&query={{ filters.query }}">Export JSON</a>
+      <a href="/feedback">Reset filters</a>
+    </div>
+  </section>
+
+  <section class="panel">
+    <h2>Breakdown</h2>
+    <div class="chips">
+      {% for tool, count in summary.by_tool %}<span class="chip">{{ tool }}: {{ count }}</span>{% endfor %}
+      {% for severity, count in summary.by_severity %}<span class="chip">{{ severity }}: {{ count }}</span>{% endfor %}
+    </div>
+  </section>
+
+  <section class="panel">
+    <h2>Repeated Issues</h2>
+    <div class="groups">
+      {% if not summary.issue_groups %}<div class="small">No grouped diagnostics for this filter.</div>{% endif %}
+      {% for group in summary.issue_groups %}
+        <article class="group">
+          <h3>{{ group.issue }} <span class="small">({{ group.count }})</span></h3>
+          {% for fix in group.fixes %}<div class="small">{{ fix }}</div>{% endfor %}
+        </article>
+      {% endfor %}
+    </div>
+  </section>
+
   <section class="items">
     {% if not items %}
-      <article class="item"><p>No disliked responses yet.</p></article>
+      <article class="item"><p>No disliked responses match these filters.</p></article>
     {% endif %}
     {% for item in items %}
-      <article class="item">
-        <h2>{{ item.user_message }}</h2>
+      <article class="item {% if item.reviewed %}reviewed{% endif %}" data-trace="{{ item.id }}">
+        <div class="item-head">
+          <h2>{{ item.user_message }}</h2>
+          <button class="review-button" type="button" data-reviewed="{{ '1' if item.reviewed else '0' }}">{{ "Mark Open" if item.reviewed else "Mark Reviewed" }}</button>
+        </div>
         <div class="grid"><strong>Disliked at</strong><span>{{ item.feedback_created_at }}</span></div>
         <div class="grid"><strong>Tool</strong><span>{{ item.tool_name or "none" }}</span></div>
+        <div class="grid"><strong>Severity</strong><span>{{ item.feedback.get("severity", "unknown") }}</span></div>
         <div class="grid"><strong>Trace</strong><span><a href="/trace-page/{{ item.id }}" target="_blank" rel="noopener">{{ item.id }}</a></span></div>
         <h2>Answer</h2>
         <pre>{{ item.answer }}</pre>
@@ -68,5 +155,31 @@
     {% endfor %}
   </section>
 </main>
+<script>
+document.addEventListener('click', async (event) => {
+  const button = event.target.closest('.review-button');
+  if (!button) return;
+  const item = button.closest('.item');
+  const traceId = item.dataset.trace;
+  const reviewed = button.dataset.reviewed !== '1';
+  button.disabled = true;
+  try {
+    const res = await fetch(`/feedback/${encodeURIComponent(traceId)}/reviewed`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({reviewed})
+    });
+    const data = await res.json();
+    if (!data.ok) throw new Error(data.error || 'Could not update feedback.');
+    button.dataset.reviewed = data.reviewed ? '1' : '0';
+    button.textContent = data.reviewed ? 'Mark Open' : 'Mark Reviewed';
+    item.classList.toggle('reviewed', data.reviewed);
+  } catch (err) {
+    alert(String(err));
+  } finally {
+    button.disabled = false;
+  }
+});
+</script>
 </body>
 </html>

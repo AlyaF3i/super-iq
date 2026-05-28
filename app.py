@@ -1,4 +1,6 @@
 import ast
+import csv
+import io
 import json
 import os
 import re
@@ -13,7 +15,7 @@ from pathlib import Path
 from typing import Any
 
 import requests
-from flask import Flask, jsonify, redirect, render_template, request
+from flask import Flask, Response, jsonify, redirect, render_template, request
 
 
 APP_DIR = Path(__file__).resolve().parent
@@ -86,6 +88,8 @@ def init_history_db() -> None:
             con.execute("alter table chat_turns add column feedback_json text")
         if "feedback_created_at" not in columns:
             con.execute("alter table chat_turns add column feedback_created_at text")
+        if "feedback_reviewed" not in columns:
+            con.execute("alter table chat_turns add column feedback_reviewed integer not null default 0")
         con.execute(
             """
             insert or ignore into chat_sessions (id, title, created_at, updated_at)
@@ -328,20 +332,43 @@ def save_dislike_feedback(trace_id: str) -> dict[str, Any] | None:
         con.close()
 
 
-def load_disliked_feedback(limit: int = 100) -> list[dict[str, Any]]:
+def load_disliked_feedback(
+    limit: int = 100,
+    tool: str = "",
+    severity: str = "",
+    status: str = "open",
+    query: str = "",
+) -> list[dict[str, Any]]:
     init_history_db()
     con = sqlite3.connect(HISTORY_DB_PATH)
     con.row_factory = sqlite3.Row
     try:
+        filters = ["disliked = 1"]
+        params: list[Any] = []
+        if tool:
+            filters.append("coalesce(tool_name, '') = ?")
+            params.append(tool)
+        if status == "reviewed":
+            filters.append("feedback_reviewed = 1")
+        elif status == "all":
+            pass
+        else:
+            filters.append("feedback_reviewed = 0")
+        if query:
+            filters.append("(user_message like ? or answer like ? or feedback_json like ?)")
+            like = f"%{query}%"
+            params.extend([like, like, like])
+        where = " and ".join(filters)
         rows = con.execute(
-            """
-            select id, created_at, feedback_created_at, user_message, answer, tool_name, feedback_json
+            f"""
+            select id, created_at, feedback_created_at, user_message, answer, tool_name,
+                   feedback_json, feedback_reviewed
             from chat_turns
-            where disliked = 1
+            where {where}
             order by feedback_created_at desc, created_at desc
             limit ?
             """,
-            (limit,),
+            (*params, limit),
         ).fetchall()
         items = []
         for row in rows:
@@ -350,8 +377,88 @@ def load_disliked_feedback(limit: int = 100) -> list[dict[str, Any]]:
                 item["feedback"] = json.loads(item.get("feedback_json") or "{}")
             except json.JSONDecodeError:
                 item["feedback"] = {"raw": item.get("feedback_json")}
+            item["reviewed"] = bool(item.get("feedback_reviewed"))
+            if severity and str(item["feedback"].get("severity", "")).lower() != severity.lower():
+                continue
             items.append(item)
         return items
+    finally:
+        con.close()
+
+
+def disliked_feedback_summary(items: list[dict[str, Any]]) -> dict[str, Any]:
+    by_tool: dict[str, int] = {}
+    by_severity: dict[str, int] = {}
+    by_issue: dict[str, dict[str, Any]] = {}
+    reviewed = 0
+    for item in items:
+        tool = item.get("tool_name") or "none"
+        by_tool[tool] = by_tool.get(tool, 0) + 1
+        if item.get("reviewed"):
+            reviewed += 1
+        feedback = item.get("feedback") or {}
+        severity = str(feedback.get("severity") or "unknown")
+        by_severity[severity] = by_severity.get(severity, 0) + 1
+        issue = str(feedback.get("likely_issue") or "Uncategorized")
+        fix = str(feedback.get("prompt_or_routing_fix") or feedback.get("better_action") or "")
+        group = by_issue.setdefault(issue, {"issue": issue, "count": 0, "fixes": set()})
+        group["count"] += 1
+        if fix:
+            group["fixes"].add(fix)
+    issue_groups = []
+    for group in by_issue.values():
+        issue_groups.append(
+            {
+                "issue": group["issue"],
+                "count": group["count"],
+                "fixes": sorted(group["fixes"])[:3],
+            }
+        )
+    issue_groups.sort(key=lambda group: group["count"], reverse=True)
+    return {
+        "total": len(items),
+        "open": len(items) - reviewed,
+        "reviewed": reviewed,
+        "by_tool": sorted(by_tool.items(), key=lambda item: item[1], reverse=True),
+        "by_severity": sorted(by_severity.items(), key=lambda item: item[1], reverse=True),
+        "issue_groups": issue_groups[:8],
+    }
+
+
+def feedback_filter_options() -> dict[str, list[str]]:
+    init_history_db()
+    con = sqlite3.connect(HISTORY_DB_PATH)
+    con.row_factory = sqlite3.Row
+    try:
+        tools = [
+            row[0] or "none"
+            for row in con.execute(
+                "select distinct coalesce(tool_name, 'none') from chat_turns where disliked = 1 order by 1"
+            ).fetchall()
+        ]
+        severities = set()
+        for row in con.execute("select feedback_json from chat_turns where disliked = 1 and feedback_json is not null"):
+            try:
+                severity = str(json.loads(row[0]).get("severity") or "")
+            except json.JSONDecodeError:
+                severity = ""
+            if severity:
+                severities.add(severity)
+        return {"tools": tools, "severities": sorted(severities)}
+    finally:
+        con.close()
+
+
+def set_feedback_reviewed(trace_id: str, reviewed: bool) -> bool:
+    init_history_db()
+    con = sqlite3.connect(HISTORY_DB_PATH)
+    try:
+        cur = con.execute(
+            "update chat_turns set feedback_reviewed = ? where id = ? and disliked = 1",
+            (1 if reviewed else 0, trace_id),
+        )
+        con.commit()
+        return cur.rowcount > 0
     finally:
         con.close()
 
@@ -1520,11 +1627,96 @@ def trace_page(trace_id: str):
 
 @app.get("/feedback")
 def feedback_page():
+    filters = {
+        "tool": request.args.get("tool", "").strip(),
+        "severity": request.args.get("severity", "").strip(),
+        "status": request.args.get("status", "open").strip() or "open",
+        "query": request.args.get("query", "").strip(),
+    }
+    items = load_disliked_feedback(
+        tool=filters["tool"],
+        severity=filters["severity"],
+        status=filters["status"],
+        query=filters["query"],
+        limit=250,
+    )
     return render_template(
         "feedback.html",
-        items=load_disliked_feedback(),
+        items=items,
+        summary=disliked_feedback_summary(items),
+        filters=filters,
+        options=feedback_filter_options(),
         render_json=render_trace_value,
     )
+
+
+@app.get("/feedback/export.<fmt>")
+def feedback_export(fmt: str):
+    filters = {
+        "tool": request.args.get("tool", "").strip(),
+        "severity": request.args.get("severity", "").strip(),
+        "status": request.args.get("status", "all").strip() or "all",
+        "query": request.args.get("query", "").strip(),
+    }
+    items = load_disliked_feedback(
+        tool=filters["tool"],
+        severity=filters["severity"],
+        status=filters["status"],
+        query=filters["query"],
+        limit=1000,
+    )
+    if fmt == "json":
+        return jsonify({"ok": True, "items": items, "summary": disliked_feedback_summary(items)})
+    if fmt != "csv":
+        return jsonify({"ok": False, "error": "Unsupported export format."}), 404
+    output = io.StringIO()
+    writer = csv.DictWriter(
+        output,
+        fieldnames=[
+            "id",
+            "feedback_created_at",
+            "tool_name",
+            "reviewed",
+            "severity",
+            "likely_issue",
+            "better_action",
+            "prompt_or_routing_fix",
+            "data_or_tool_gap",
+            "user_message",
+            "answer",
+        ],
+    )
+    writer.writeheader()
+    for item in items:
+        feedback = item.get("feedback") or {}
+        writer.writerow(
+            {
+                "id": item.get("id"),
+                "feedback_created_at": item.get("feedback_created_at"),
+                "tool_name": item.get("tool_name"),
+                "reviewed": item.get("reviewed"),
+                "severity": feedback.get("severity"),
+                "likely_issue": feedback.get("likely_issue"),
+                "better_action": feedback.get("better_action"),
+                "prompt_or_routing_fix": feedback.get("prompt_or_routing_fix"),
+                "data_or_tool_gap": feedback.get("data_or_tool_gap"),
+                "user_message": item.get("user_message"),
+                "answer": item.get("answer"),
+            }
+        )
+    return Response(
+        output.getvalue(),
+        mimetype="text/csv",
+        headers={"Content-Disposition": "attachment; filename=disliked-feedback.csv"},
+    )
+
+
+@app.post("/feedback/<trace_id>/reviewed")
+def feedback_reviewed(trace_id: str):
+    reviewed = bool((request.json or {}).get("reviewed", True))
+    if not set_feedback_reviewed(trace_id, reviewed):
+        return jsonify({"ok": False, "error": "Feedback not found."}), 404
+    return jsonify({"ok": True, "reviewed": reviewed})
 
 
 @app.post("/feedback/dislike")
