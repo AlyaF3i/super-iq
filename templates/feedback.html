@@ -7,30 +7,45 @@
   <title>Disliked Responses</title>
   <style>
     :root { color-scheme: light; font-family: Inter, Segoe UI, Arial, sans-serif; --navy: #061427; --blue: #149ee7; --cyan: #2fd3ff; --ink: #101c2e; --line: #d7e5ee; }
-    body { margin: 0; background: #f3f8fb; color: var(--ink); }
-    main { max-width: 1180px; margin: 0 auto; padding: 28px; }
+    body { margin: 0; background: linear-gradient(180deg, #eef7fc 0%, #f7fbfe 46%, #edf4f8 100%); color: var(--ink); }
+    .topbar { position: relative; overflow: hidden; background: radial-gradient(circle at 56% 0%, rgba(47, 211, 255, 0.22), transparent 34%), linear-gradient(135deg, #020915 0%, #061427 54%, #0a2742 100%); color: white; border-bottom: 4px solid var(--blue); }
+    .topbar::after { content: ""; position: absolute; inset: 0; background: repeating-linear-gradient(135deg, transparent 0 18px, rgba(47, 211, 255, 0.72) 18px 26px, transparent 26px 44px); width: 190px; left: auto; opacity: 0.85; }
+    .topbar-inner { position: relative; z-index: 1; max-width: 1320px; margin: 0 auto; padding: 16px 28px 20px; display: grid; grid-template-columns: 210px auto minmax(0, 1fr); gap: 24px; align-items: center; }
+    .brand { font-weight: 900; font-size: 24px; line-height: 1; letter-spacing: 0; }
+    .brand span, .hero-title span { color: var(--cyan); }
+    .hero-title { font-size: 28px; font-weight: 800; line-height: 1.16; text-shadow: 0 2px 8px rgba(0, 0, 0, 0.36); }
+    main { max-width: 1320px; margin: 0 auto; padding: 24px 28px 32px; }
     header { display: flex; justify-content: space-between; gap: 18px; align-items: flex-start; margin-bottom: 18px; }
     h1 { font-size: 24px; margin: 0; }
     h2 { font-size: 16px; margin: 0 0 10px; }
     .small { color: #52616b; font-size: 12px; line-height: 1.45; }
-    .nav { display: flex; gap: 12px; margin-top: 8px; }
-    .nav a { color: #0a76ba; font-size: 13px; font-weight: 800; text-decoration: none; }
+    .nav { display: flex; gap: 10px; margin-top: 0; justify-content: flex-start; }
+    .nav a { color: white; font-size: 15px; font-weight: 800; text-decoration: none; padding: 10px 15px; border: 1px solid rgba(47, 211, 255, 0.45); border-radius: 6px; background: rgba(20, 158, 231, 0.18); }
+    .nav a:hover { background: rgba(47, 211, 255, 0.28); }
     .items { display: grid; gap: 14px; }
     .item { background: white; border: 1px solid var(--line); border-radius: 8px; padding: 16px; box-shadow: 0 10px 26px rgba(7, 33, 54, 0.06); }
     .grid { display: grid; grid-template-columns: 160px minmax(0, 1fr); gap: 8px; font-size: 13px; margin: 8px 0; }
+    .diagnostic { border-top: 1px solid #edf1f3; padding-top: 12px; margin-top: 12px; }
     pre { background: #061427; color: #f5fbff; padding: 12px; border-radius: 6px; overflow: auto; max-height: 360px; white-space: pre-wrap; }
     table { border-collapse: collapse; width: 100%; margin-top: 8px; font-size: 13px; }
     th, td { border: 1px solid #ccd6da; padding: 7px 8px; text-align: left; vertical-align: top; }
     th { background: #dff1fb; }
+    @media (max-width: 1040px) { .topbar-inner { grid-template-columns: 1fr; gap: 12px; } main { padding: 16px; } .nav { flex-wrap: wrap; } .grid { grid-template-columns: 1fr; } }
   </style>
 </head>
 <body>
+<div class="topbar">
+  <div class="topbar-inner">
+    <div class="brand">Agent<span>|</span>Gate</div>
+    <nav class="nav"><a href="/">Chat</a><a href="/data">Data</a><a href="/feedback">Disliked</a></nav>
+    <div class="hero-title">Disliked <span>Response</span> Review</div>
+  </div>
+</div>
 <main>
   <header>
     <div>
       <h1>Disliked Responses</h1>
       <div class="small">Hidden model diagnostics for responses users marked as not good enough.</div>
-      <nav class="nav"><a href="/">Chat</a><a href="/data">Data</a></nav>
     </div>
   </header>
   <section class="items">
@@ -45,8 +60,10 @@
         <div class="grid"><strong>Trace</strong><span><a href="/trace-page/{{ item.id }}" target="_blank" rel="noopener">{{ item.id }}</a></span></div>
         <h2>Answer</h2>
         <pre>{{ item.answer }}</pre>
-        <h2>Hidden Diagnostic</h2>
-        {{ render_json(item.feedback)|safe }}
+        <div class="diagnostic">
+          <h2>Hidden Diagnostic</h2>
+          {{ render_json(item.feedback)|safe }}
+        </div>
       </article>
     {% endfor %}
   </section>
