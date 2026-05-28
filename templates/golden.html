@@ -11,7 +11,7 @@
     .topbar::after { content: ""; position: absolute; inset: 0; background: repeating-linear-gradient(135deg, transparent 0 18px, rgba(47,211,255,.72) 18px 26px, transparent 26px 44px); width: 190px; left: auto; opacity: .85; }
     .topbar-inner { position: relative; z-index: 1; max-width: 1320px; margin: 0 auto; padding: 16px 28px 20px; display: grid; grid-template-columns: 180px auto minmax(0, 1fr); gap: 18px; align-items: center; }
     .brand { font-weight: 900; font-size: 24px; line-height: 1; }.brand span,.hero-title span{color:var(--cyan)}.hero-title{font-size:28px;font-weight:800;line-height:1.16;text-shadow:0 2px 8px rgba(0,0,0,.36)}
-    .nav { display: flex; gap: 8px; flex-wrap: wrap; }.nav a{color:white;font-size:14px;font-weight:800;text-decoration:none;padding:9px 12px;border:1px solid rgba(47,211,255,.45);border-radius:6px;background:rgba(20,158,231,.18)}
+    .nav { display: flex; gap: 18px; flex-wrap: wrap; align-items: center; }.nav a{color:rgba(255,255,255,.86);font-size:14px;font-weight:800;text-decoration:none;padding:4px 0;border-bottom:2px solid transparent}.nav a:hover{color:white;border-bottom-color:var(--cyan)}
     main { max-width: 1320px; margin: 0 auto; padding: 24px 28px 32px; }
     header { display:flex; justify-content:space-between; gap:16px; align-items:flex-start; margin-bottom:16px; } h1{font-size:24px;margin:0}.small{color:#52616b;font-size:12px;line-height:1.45}
     .panel,.test{background:white;border:1px solid var(--line);border-radius:8px;box-shadow:0 10px 26px rgba(7,33,54,.06)}.panel{padding:16px;margin-bottom:16px}
@@ -27,7 +27,7 @@
 <main>
   <header><div><h1>Golden Tests</h1><div class="small">Runs expected-answer checks without creating chat history.</div></div></header>
   <section class="panel">
-    <div class="actions"><button id="runAll">Run all tests</button><button id="runSelected">Run selected</button><span id="status" class="small">Ready</span></div>
+    <div class="actions"><label class="small">Admin password <input id="adminPassword" type="password" placeholder="admin"></label><button id="runAll">Run all tests</button><button id="runSelected">Run selected</button><span id="status" class="small">Ready</span></div>
   </section>
   <section class="summary panel"><div class="metric"><span class="small">Total</span><strong id="total">0</strong></div><div class="metric"><span class="small">Passed</span><strong id="passed">0</strong></div><div class="metric"><span class="small">Failed</span><strong id="failed">0</strong></div></section>
   <section class="tests" id="tests">
@@ -44,7 +44,7 @@
 const statusEl=document.getElementById('status'), runAll=document.getElementById('runAll'), runSelected=document.getElementById('runSelected');
 function setBusy(busy){runAll.disabled=busy;runSelected.disabled=busy;statusEl.textContent=busy?'Running tests...':'Ready'}
 function paint(results, summary){document.getElementById('total').textContent=summary.total;document.getElementById('passed').textContent=summary.passed;document.getElementById('failed').textContent=summary.failed;for(const r of results){const el=document.querySelector(`.test[data-id="${r.id}"]`);if(!el)continue;const badge=el.querySelector('.badge');badge.textContent=r.ok?'Pass':'Fail';badge.className='badge '+(r.ok?'pass':'fail');el.querySelector('.failures').textContent=r.failures.join(' | ');const pre=el.querySelector('.answer');pre.hidden=false;pre.textContent=`Tool: ${r.tool || 'none'}\\nSteps: ${(r.steps||[]).join(' -> ')}\\nDuration: ${r.duration_ms} ms\\n\\n${r.answer || ''}`}}
-async function run(ids){setBusy(true);try{const res=await fetch('/golden/run',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ids})});const data=await res.json();if(!data.ok)throw new Error(data.error||'Failed');paint(data.results,data.summary)}catch(e){statusEl.textContent=String(e)}finally{setBusy(false)}}
+async function run(ids){setBusy(true);try{const admin_password=document.getElementById('adminPassword').value;const res=await fetch('/golden/run',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ids,admin_password})});const data=await res.json();if(!data.ok)throw new Error(data.error||'Failed');paint(data.results,data.summary)}catch(e){statusEl.textContent=String(e)}finally{setBusy(false)}}
 runAll.addEventListener('click',()=>run([]));runSelected.addEventListener('click',()=>run(Array.from(document.querySelectorAll('.test')).filter(el=>el.querySelector('.pick').checked).map(el=>el.dataset.id)));
 </script>
 </body>

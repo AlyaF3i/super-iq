@@ -55,6 +55,7 @@ DEFAULT_SETTINGS = {
     "max_sql_rows": 50,
     "language_mode": "match_user",
 }
+ADMIN_PASSWORD = "admin"
 
 app = Flask(__name__)
 
@@ -101,6 +102,13 @@ def current_model() -> str:
 
 def current_data_source() -> str:
     return load_app_settings()["data_source"]
+
+
+def require_admin_password(payload: dict[str, Any]) -> tuple[bool, str | None]:
+    password = str(payload.get("admin_password") or payload.get("password") or "")
+    if password == ADMIN_PASSWORD:
+        return True, None
+    return False, "Admin password is required."
 
 
 def language_instruction() -> str:
@@ -1785,6 +1793,9 @@ def golden_page():
 @app.post("/golden/run")
 def golden_run():
     payload = request.json or {}
+    allowed, error = require_admin_password(payload)
+    if not allowed:
+        return jsonify({"ok": False, "error": error}), 403
     selected_ids = set(payload.get("ids") or [])
     tests = [test for test in GOLDEN_TESTS if not selected_ids or test["id"] in selected_ids]
     results = []
@@ -1894,7 +1905,11 @@ def settings_page():
 @app.post("/settings")
 def settings_save():
     try:
-        settings = save_app_settings(request.json or request.form.to_dict())
+        payload = request.json or request.form.to_dict()
+        allowed, error = require_admin_password(payload)
+        if not allowed:
+            return jsonify({"ok": False, "error": error}), 403
+        settings = save_app_settings(payload)
         return jsonify({"ok": True, "settings": settings})
     except Exception as exc:
         return jsonify({"ok": False, "error": str(exc)}), 400
