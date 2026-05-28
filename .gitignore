@@ -26,6 +26,7 @@ zoho_crm_models.py
 *.sqlite
 *.db
 chat_history.sqlite3
+app_settings.json
 
 # Old live Zoho/API helpers kept local only.
 export_zoho_schema.py

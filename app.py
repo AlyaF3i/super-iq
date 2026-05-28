@@ -4,6 +4,7 @@ import io
 import json
 import os
 import re
+import shutil
 import sqlite3
 import subprocess
 import sys
@@ -43,9 +44,72 @@ CONTAINER_DATA_DIR = ENV.get("ANALYTICS_MCP_DATA_DIR", "/tmp/zoho-analytics-mcp"
 LOCAL_DB_PATH = Path(ENV.get("LOCAL_CRM_DB", APP_DIR / "zoho_crm_local.sqlite3")).resolve()
 HISTORY_DB_PATH = Path(ENV.get("CHAT_HISTORY_DB", APP_DIR / "chat_history.sqlite3")).resolve()
 DATA_SOURCE = ENV.get("DATA_SOURCE", "local").lower()
+SETTINGS_PATH = Path(ENV.get("APP_SETTINGS_FILE", APP_DIR / "app_settings.json")).resolve()
+SCENARIO_BACKUP_PATH = Path(ENV.get("SCENARIO_BACKUP_DB", APP_DIR / "zoho_crm_local.before_scenario.sqlite3")).resolve()
+DEFAULT_SETTINGS = {
+    "model": OLLAMA_MODEL,
+    "ollama_url": OLLAMA_URL,
+    "temperature": 0.1,
+    "num_predict": 900,
+    "data_source": DATA_SOURCE,
+    "max_sql_rows": 50,
+    "language_mode": "match_user",
+}
 
 app = Flask(__name__)
 
+
+def load_app_settings() -> dict[str, Any]:
+    settings = DEFAULT_SETTINGS.copy()
+    if SETTINGS_PATH.exists():
+        try:
+            saved = json.loads(SETTINGS_PATH.read_text(encoding="utf-8"))
+            if isinstance(saved, dict):
+                settings.update(saved)
+        except json.JSONDecodeError:
+            pass
+    settings["temperature"] = max(0.0, min(float(settings.get("temperature", 0.1)), 2.0))
+    settings["num_predict"] = max(128, min(int(settings.get("num_predict", 900)), 8192))
+    settings["max_sql_rows"] = max(1, min(int(settings.get("max_sql_rows", 50)), 500))
+    settings["data_source"] = str(settings.get("data_source") or "local").lower()
+    settings["language_mode"] = str(settings.get("language_mode") or "match_user")
+    settings["model"] = str(settings.get("model") or DEFAULT_SETTINGS["model"])
+    settings["ollama_url"] = str(settings.get("ollama_url") or DEFAULT_SETTINGS["ollama_url"]).rstrip("/")
+    return settings
+
+
+def save_app_settings(settings: dict[str, Any]) -> dict[str, Any]:
+    clean = DEFAULT_SETTINGS.copy()
+    clean.update(
+        {
+            "model": str(settings.get("model") or DEFAULT_SETTINGS["model"]).strip(),
+            "ollama_url": str(settings.get("ollama_url") or DEFAULT_SETTINGS["ollama_url"]).strip().rstrip("/"),
+            "temperature": max(0.0, min(float(settings.get("temperature", 0.1)), 2.0)),
+            "num_predict": max(128, min(int(settings.get("num_predict", 900)), 8192)),
+            "data_source": str(settings.get("data_source") or "local").lower(),
+            "max_sql_rows": max(1, min(int(settings.get("max_sql_rows", 50)), 500)),
+            "language_mode": str(settings.get("language_mode") or "match_user"),
+        }
+    )
+    SETTINGS_PATH.write_text(json.dumps(clean, indent=2), encoding="utf-8")
+    return clean
+
+
+def current_model() -> str:
+    return load_app_settings()["model"]
+
+
+def current_data_source() -> str:
+    return load_app_settings()["data_source"]
+
+
+def language_instruction() -> str:
+    mode = load_app_settings()["language_mode"]
+    if mode == "arabic":
+        return "Answer user-facing text in Arabic unless the user explicitly asks for another language. "
+    if mode == "english":
+        return "Answer user-facing text in English unless the user explicitly asks for another language. "
+    return "Answer in the same language as the user's question. If the user writes Arabic, answer in Arabic. "
 
 
 
@@ -184,7 +248,7 @@ def save_chat_turn(
             (
                 trace_id,
                 session_id,
-                DATA_SOURCE,
+                current_data_source(),
                 user_message,
                 answer,
                 tool_name,
@@ -463,6 +527,146 @@ def set_feedback_reviewed(trace_id: str, reviewed: bool) -> bool:
         con.close()
 
 
+GOLDEN_TESTS = [
+    {"id": "block_capital", "category": "Blockers", "question": "ما عاصمة فرنسا؟", "tools": ["unsupported_question"], "required": ["CRM"]},
+    {"id": "block_president", "category": "Blockers", "question": "من هو رئيس الولايات المتحدة؟", "tools": ["unsupported_question"], "required": ["CRM"]},
+    {"id": "block_sports", "category": "Blockers", "question": "ما آخر مباراة في الدوري الإنجليزي الممتاز؟", "tools": ["unsupported_question"], "required": ["CRM"]},
+    {"id": "block_weather", "category": "Blockers", "question": "ما حالة الطقس في دبي غداً؟", "tools": ["unsupported_question"], "required": ["CRM"]},
+    {"id": "block_joke", "category": "Blockers", "question": "اكتب لي نكتة قصيرة", "tools": ["unsupported_question"], "required": ["CRM"]},
+    {"id": "lead_count", "category": "Simple", "question": "كم عدد العملاء المحتملين لدينا؟", "tools": ["local_sql"], "required": ["200"]},
+    {"id": "sales_revenue", "category": "Simple", "question": "ما إجمالي إيرادات المبيعات لدينا؟", "tools": ["local_sql"], "required": []},
+    {"id": "overdue_payments", "category": "Simple", "question": "اعرض لي المدفوعات المتأخرة", "tools": ["local_sql"], "required": ["|"]},
+    {"id": "account_count", "category": "Simple", "question": "كم عدد الحسابات لدينا؟", "tools": ["local_sql"], "required": ["200"]},
+    {"id": "average_deal", "category": "Simple", "question": "ما متوسط قيمة الصفقة؟", "tools": ["local_sql"], "required": []},
+    {"id": "pipeline_weakest", "category": "Complex", "question": "حلل مسار المبيعات وحدد أضعف مرحلة", "tools": ["python_analysis"], "required": []},
+    {"id": "industry_focus", "category": "Complex", "question": "قارن العملاء المحتملين حسب القطاع وأخبرني أين يجب أن نركز", "tools": ["local_sql", "python_analysis"], "required": []},
+    {"id": "top_accounts", "category": "Complex", "question": "حدد أفضل الحسابات أداء ومساهمتها في الإيرادات", "tools": ["local_sql", "python_analysis"], "required": ["%"]},
+    {"id": "won_lost", "category": "Complex", "question": "قارن الصفقات الرابحة والخاسرة حسب القيمة والعدد", "tools": ["local_sql", "python_analysis"], "required": ["Closed"]},
+    {"id": "owner_revenue", "category": "Complex", "question": "حلل الإيرادات حسب مالك الصفقة وحدد أفضل ثلاثة مالكين", "tools": ["local_sql", "python_analysis"], "required": []},
+    {"id": "campaign_clarify", "category": "Clarification", "question": "أي حملة أفضل؟", "tools": ["clarification_needed"], "required": ["؟"]},
+    {"id": "team_clarify", "category": "Clarification", "question": "قارن الأداء بين الفرق", "tools": ["clarification_needed"], "required": ["مقياس"]},
+    {"id": "employee_clarify", "category": "Clarification", "question": "من هو أفضل موظف؟", "tools": ["clarification_needed"], "required": ["معيار"]},
+    {"id": "employee_departments", "category": "Employees", "question": "كم عدد الموظفين في كل قسم؟", "tools": ["local_sql"], "required": ["|"]},
+    {"id": "salary_roles", "category": "Employees", "question": "ما متوسط الراتب حسب الدور الوظيفي؟", "tools": ["local_sql"], "required": ["|"]},
+    {"id": "salary_departments", "category": "Employees", "question": "حدد أعلى الأقسام من حيث إجمالي الرواتب", "tools": ["local_sql"], "required": ["|"]},
+    {"id": "activity_types", "category": "Activities", "question": "ما أكثر أنواع الأنشطة شيوعاً في CRM؟", "tools": ["local_sql"], "required": ["Call"]},
+    {"id": "call_owner", "category": "Activities", "question": "من يملك أكبر عدد من المكالمات؟", "tools": ["local_sql"], "required": []},
+    {"id": "overdue_tasks", "category": "Activities", "question": "اعرض المهام المتأخرة حسب الأولوية", "tools": ["local_sql"], "required": ["|"]},
+]
+
+
+SCENARIOS = [
+    {
+        "id": "bad_quarter",
+        "name": "Bad Quarter",
+        "description": "Lower close quality, more lost deals, slower cycles, and weaker pipeline health.",
+        "questions": [
+            "حلل مسار المبيعات وحدد أضعف مرحلة",
+            "قارن الصفقات الرابحة والخاسرة حسب القيمة والعدد",
+            "ما إجمالي إيرادات المبيعات لدينا؟",
+        ],
+    },
+    {
+        "id": "high_overdue_invoices",
+        "name": "High Overdue Invoices",
+        "description": "Many invoices become old, unpaid, and high-balance so payment risk is easy to detect.",
+        "questions": [
+            "اعرض لي المدفوعات المتأخرة",
+            "ما إجمالي إيرادات المبيعات لدينا؟",
+        ],
+    },
+    {
+        "id": "strong_marketing_campaign",
+        "name": "Strong Marketing Campaign",
+        "description": "Campaign metrics and related won deals improve to create a strong marketing story.",
+        "questions": [
+            "أي حملة أفضل؟",
+            "حدد أفضل الحسابات أداء ومساهمتها في الإيرادات",
+            "قارن العملاء المحتملين حسب القطاع وأخبرني أين يجب أن نركز",
+        ],
+    },
+]
+
+
+def evaluate_answer(question: str, expected: dict[str, Any], result: dict[str, Any]) -> dict[str, Any]:
+    answer = str(result.get("answer") or "")
+    tool = str(result.get("tool_name") or "")
+    expected_tools = expected.get("tools") or []
+    required = expected.get("required") or []
+    forbidden = expected.get("forbidden") or ["```", "<tool_call>"]
+    failures = []
+    if expected_tools and tool not in expected_tools:
+        failures.append(f"Expected tool one of {expected_tools}, got {tool or 'none'}.")
+    for term in required:
+        if term and term.lower() not in answer.lower():
+            failures.append(f"Missing expected text: {term}")
+    for term in forbidden:
+        if term and term.lower() in answer.lower():
+            failures.append(f"Unexpected text: {term}")
+    if uses_arabic(question) and not uses_arabic(answer):
+        failures.append("Expected Arabic answer for Arabic question.")
+    return {
+        "ok": not failures,
+        "failures": failures,
+        "tool": tool,
+        "answer": answer,
+        "steps": [step.get("name") for step in (result.get("trace") or {}).get("steps", [])],
+    }
+
+
+def run_agent_without_history(question: str) -> dict[str, Any]:
+    if current_data_source() != "local":
+        raise RuntimeError("Golden tests and scenarios run against the local CRM database only.")
+    return answer_from_local(question)
+
+
+def scenario_metrics() -> dict[str, Any]:
+    con = sqlite3.connect(LOCAL_DB_PATH)
+    con.row_factory = sqlite3.Row
+    try:
+        return {
+            "deals_by_stage": [dict(row) for row in con.execute("select Stage, count(*) Count, round(sum(Amount), 2) Amount from Deals group by Stage order by Amount desc")],
+            "overdue_invoices": dict(con.execute("select count(*) Count, round(sum(Balance), 2) Balance from Invoices where date(Due_Date) < date('now') and Balance > 0 and lower(Invoice_Status) not in ('cancelled', 'draft')").fetchone()),
+            "campaigns": [dict(row) for row in con.execute("select Campaign_Name, Status, round(Expected_Revenue, 2) Expected_Revenue, round(Actual_Cost, 2) Actual_Cost, Expected_Response from Campaigns order by Expected_Revenue desc limit 5")],
+        }
+    finally:
+        con.close()
+
+
+def apply_scenario(scenario_id: str) -> dict[str, Any]:
+    if not LOCAL_DB_PATH.exists():
+        raise RuntimeError("Local CRM database does not exist.")
+    if not SCENARIO_BACKUP_PATH.exists():
+        shutil.copy2(LOCAL_DB_PATH, SCENARIO_BACKUP_PATH)
+    con = sqlite3.connect(LOCAL_DB_PATH)
+    try:
+        if scenario_id == "bad_quarter":
+            con.execute("update Deals set Stage = 'Closed Lost', Probability = 10, Sales_Cycle_Duration = 620 where cast(substr(id, -2) as integer) % 3 = 0")
+            con.execute("update Deals set Stage = 'Proposal', Probability = 35, Sales_Cycle_Duration = 540 where cast(substr(id, -2) as integer) % 3 = 1")
+            con.execute("update Deals set Amount = round(Amount * 0.62, 2), Expected_Revenue = round(Expected_Revenue * 0.55, 2)")
+            con.execute("update Leads set Lead_Status = 'Lost' where cast(substr(id, -2) as integer) % 4 = 0")
+        elif scenario_id == "high_overdue_invoices":
+            con.execute("update Invoices set Invoice_Status = 'Confirmed', Due_Date = date('now', '-180 days'), Balance = round(Grand_Total * 0.72, 2) where cast(substr(id, -2) as integer) % 2 = 0")
+            con.execute("update Invoices set Invoice_Status = 'Delivered', Due_Date = date('now', '-90 days'), Balance = round(Grand_Total * 0.45, 2) where cast(substr(id, -2) as integer) % 2 = 1")
+        elif scenario_id == "strong_marketing_campaign":
+            con.execute("update Campaigns set Status = 'Active', Campaign_Name = 'Enterprise Webinar', Expected_Revenue = 950000, Actual_Cost = 42000, Budgeted_Cost = 65000, Expected_Response = 84 where rowid <= 60")
+            con.execute("update Deals set Stage = 'Closed Won', Amount = round(Amount * 1.75, 2), Expected_Revenue = round(Amount * 1.55, 2), Probability = 95, Campaign_Source = 'Enterprise Webinar' where cast(substr(id, -2) as integer) % 2 = 0")
+            con.execute("update Leads set Lead_Source = 'Webinar', Lead_Status = 'Qualified', Annual_Revenue = round(Annual_Revenue * 1.6, 2) where cast(substr(id, -2) as integer) % 2 = 0")
+        else:
+            raise RuntimeError("Unknown scenario.")
+        con.commit()
+    finally:
+        con.close()
+    return scenario_metrics()
+
+
+def reset_scenario_database() -> bool:
+    if not SCENARIO_BACKUP_PATH.exists():
+        return False
+    shutil.copy2(SCENARIO_BACKUP_PATH, LOCAL_DB_PATH)
+    return True
+
+
 def render_trace_value(value: Any) -> str:
     if isinstance(value, dict):
         if "code" in value and isinstance(value["code"], str):
@@ -591,21 +795,22 @@ def ollama_chat_response(
     tools: list[dict[str, Any]] | None = None,
     think: bool = False,
 ) -> dict[str, Any]:
+    settings = load_app_settings()
     payload: dict[str, Any] = {
-        "model": OLLAMA_MODEL,
+        "model": settings["model"],
         "messages": messages,
         "stream": False,
         "think": think,
         "options": {
-            "temperature": 0.1,
-            "num_predict": 900,
+            "temperature": settings["temperature"],
+            "num_predict": settings["num_predict"],
         },
     }
     if json_mode:
         payload["format"] = "json"
     if tools:
         payload["tools"] = tools
-    response = requests.post(f"{OLLAMA_URL}/api/chat", json=payload, timeout=300)
+    response = requests.post(f"{settings['ollama_url']}/api/chat", json=payload, timeout=300)
     response.raise_for_status()
     return response.json()
 
@@ -859,7 +1064,8 @@ def choose_local_native_tool_call(
         "call unsupported_question. If the CRM request is ambiguous, call clarification_needed. "
         "If the user asks which campaign, employee, team, account, or group is best/better without naming a metric, "
         "call clarification_needed and ask whether to compare by revenue, cost, count, conversion, activity volume, or another metric. "
-        "For every tool argument that contains user-facing text, use the same language as the user. "
+        + language_instruction()
+        + "For every tool argument that contains user-facing text, follow the language behavior above. "
         "For unsupported_question and clarification_needed, write the reason/question in the same language as the user. "
         "For simple counts/totals/lists use local_sql. For multi-step analysis, rankings, recommendations, risk, focus, or comparisons use python_analysis. "
         "When generating python_analysis code, prefer loading raw rows with SELECT column lists and doing grouping in pandas/Polars. "
@@ -888,7 +1094,7 @@ def choose_local_native_tool_call(
             {"role": "user", "content": user_content},
         ],
         tools=tools,
-        think=OLLAMA_MODEL.lower().startswith("qwen"),
+        think=current_model().lower().startswith("qwen"),
     )
     message = response.get("message") or {}
     tool_calls = message.get("tool_calls") or []
@@ -948,10 +1154,11 @@ def aggregate_in_group_by(sql: str) -> bool:
 def execute_local_sql(sql: str) -> dict[str, Any]:
     if not is_read_only_sql(sql):
         raise RuntimeError("Only read-only SELECT queries are allowed.")
+    max_rows = load_app_settings()["max_sql_rows"]
     con = sqlite3.connect(LOCAL_DB_PATH)
     con.row_factory = sqlite3.Row
     try:
-        rows = con.execute(sql).fetchmany(50)
+        rows = con.execute(sql).fetchmany(max_rows)
         return {"sql": sql, "rows": [dict(row) for row in rows], "row_count": len(rows)}
     finally:
         con.close()
@@ -1351,8 +1558,8 @@ def answer_from_local(user_message: str) -> dict[str, Any]:
                     "role": "system",
                     "content": (
                         "Answer the user's CRM question from the Python analysis result. "
-                        "Answer in the same language as the user's question. If the user writes Arabic, answer in Arabic. "
-                        "If the result does not contain enough evidence to answer the user's question, say exactly what is missing. "
+                        + language_instruction()
+                        + "If the result does not contain enough evidence to answer the user's question, say exactly what is missing. "
                         "Do not infer or invent data. Be concise. Do not mention SQL, Python code, tool names, traces, or implementation details unless asked."
                     ),
                 },
@@ -1437,8 +1644,8 @@ def answer_from_local(user_message: str) -> dict[str, Any]:
                 "role": "system",
                 "content": (
                     "Answer the user's CRM question from the SQLite query result. "
-                    "Answer in the same language as the user's question. If the user writes Arabic, answer in Arabic. "
-                    "If the result does not contain enough evidence to answer the user's question, say exactly what is missing. "
+                    + language_instruction()
+                    + "If the result does not contain enough evidence to answer the user's question, say exactly what is missing. "
                     "Do not infer or invent data. For row lists, summarize the important rows in a short markdown table. "
                     "Do not output raw JSON or code blocks unless the user explicitly asks for raw data. "
                     "Be concise. Do not mention SQL, query text, tool names, traces, or implementation details unless asked."
@@ -1520,13 +1727,14 @@ def route_obvious_tool(user_message: str, tools: list[dict[str, Any]]) -> dict[s
 
 @app.get("/")
 def index():
-    local_mode = DATA_SOURCE == "local"
+    data_source = current_data_source()
+    local_mode = data_source == "local"
     chat_id = ensure_chat_session(request.args.get("chat"))
     return render_template(
         "chat.html",
-        model=OLLAMA_MODEL,
+        model=current_model(),
         chat_id=chat_id,
-        data_source=DATA_SOURCE,
+        data_source=data_source,
         title="Local Zoho CRM Chat" if local_mode else "Zoho Analytics MCP Chat",
         intro=(
             "Ask about the local synthetic CRM data in SQLite. Example: how many leads do we have?"
@@ -1568,10 +1776,134 @@ def data_rows():
         return jsonify({"ok": False, "error": str(exc)}), 400
 
 
+@app.get("/golden")
+def golden_page():
+    categories = sorted({test["category"] for test in GOLDEN_TESTS})
+    return render_template("golden.html", tests=GOLDEN_TESTS, categories=categories)
+
+
+@app.post("/golden/run")
+def golden_run():
+    payload = request.json or {}
+    selected_ids = set(payload.get("ids") or [])
+    tests = [test for test in GOLDEN_TESTS if not selected_ids or test["id"] in selected_ids]
+    results = []
+    for test in tests:
+        started = time.perf_counter()
+        try:
+            result = run_agent_without_history(test["question"])
+            evaluation = evaluate_answer(test["question"], test, result)
+            results.append(
+                {
+                    "id": test["id"],
+                    "category": test["category"],
+                    "question": test["question"],
+                    **evaluation,
+                    "duration_ms": round((time.perf_counter() - started) * 1000, 2),
+                }
+            )
+        except Exception as exc:
+            results.append(
+                {
+                    "id": test["id"],
+                    "category": test["category"],
+                    "question": test["question"],
+                    "ok": False,
+                    "tool": None,
+                    "steps": [],
+                    "answer": "",
+                    "failures": [str(exc)],
+                    "duration_ms": round((time.perf_counter() - started) * 1000, 2),
+                }
+            )
+    return jsonify(
+        {
+            "ok": True,
+            "results": results,
+            "summary": {
+                "total": len(results),
+                "passed": sum(1 for item in results if item["ok"]),
+                "failed": sum(1 for item in results if not item["ok"]),
+            },
+        }
+    )
+
+
+@app.get("/scenarios")
+def scenarios_page():
+    return render_template(
+        "scenarios.html",
+        scenarios=SCENARIOS,
+        has_backup=SCENARIO_BACKUP_PATH.exists(),
+        metrics=scenario_metrics() if LOCAL_DB_PATH.exists() else {},
+    )
+
+
+@app.post("/scenarios/apply")
+def scenarios_apply():
+    scenario_id = (request.json or {}).get("scenario_id", "").strip()
+    scenario = next((item for item in SCENARIOS if item["id"] == scenario_id), None)
+    if not scenario:
+        return jsonify({"ok": False, "error": "Unknown scenario."}), 404
+    try:
+        return jsonify({"ok": True, "scenario": scenario, "metrics": apply_scenario(scenario_id)})
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 500
+
+
+@app.post("/scenarios/reset")
+def scenarios_reset():
+    try:
+        restored = reset_scenario_database()
+        return jsonify({"ok": True, "restored": restored, "metrics": scenario_metrics() if LOCAL_DB_PATH.exists() else {}})
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 500
+
+
+@app.post("/scenarios/test")
+def scenarios_test():
+    scenario_id = (request.json or {}).get("scenario_id", "").strip()
+    scenario = next((item for item in SCENARIOS if item["id"] == scenario_id), None)
+    if not scenario:
+        return jsonify({"ok": False, "error": "Unknown scenario."}), 404
+    results = []
+    for question in scenario["questions"]:
+        started = time.perf_counter()
+        try:
+            result = run_agent_without_history(question)
+            results.append(
+                {
+                    "question": question,
+                    "ok": True,
+                    "tool": result.get("tool_name"),
+                    "steps": [step.get("name") for step in (result.get("trace") or {}).get("steps", [])],
+                    "answer": result.get("answer"),
+                    "duration_ms": round((time.perf_counter() - started) * 1000, 2),
+                }
+            )
+        except Exception as exc:
+            results.append({"question": question, "ok": False, "error": str(exc)})
+    return jsonify({"ok": True, "scenario": scenario, "results": results})
+
+
+@app.get("/settings")
+def settings_page():
+    return render_template("settings.html", settings=load_app_settings(), settings_path=str(SETTINGS_PATH))
+
+
+@app.post("/settings")
+def settings_save():
+    try:
+        settings = save_app_settings(request.json or request.form.to_dict())
+        return jsonify({"ok": True, "settings": settings})
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 400
+
+
 @app.get("/tools")
 def tools():
     try:
-        if DATA_SOURCE == "local":
+        if current_data_source() == "local":
             return jsonify({"ok": True, "tools": local_tools()})
         return jsonify({"ok": True, "tools": mcp_list_tools()})
     except Exception as exc:
@@ -1738,7 +2070,7 @@ def chat():
         return jsonify({"ok": False, "error": "Message is required."}), 400
 
     try:
-        if DATA_SOURCE == "local":
+        if current_data_source() == "local":
             result = answer_from_local(user_message)
             trace_id = str(uuid.uuid4())
             trace_payload = result.get("trace") or {

@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Scenario Generator</title>
+  <style>
+    :root{color-scheme:light;font-family:Inter,Segoe UI,Arial,sans-serif;--blue:#149ee7;--cyan:#2fd3ff;--ink:#101c2e;--line:#d7e5ee}body{margin:0;background:linear-gradient(180deg,#eef7fc 0%,#f7fbfe 46%,#edf4f8 100%);color:var(--ink)}.topbar{position:relative;overflow:hidden;background:radial-gradient(circle at 56% 0%,rgba(47,211,255,.22),transparent 34%),linear-gradient(135deg,#020915 0%,#061427 54%,#0a2742 100%);color:white;border-bottom:4px solid var(--blue)}.topbar::after{content:"";position:absolute;inset:0;background:repeating-linear-gradient(135deg,transparent 0 18px,rgba(47,211,255,.72) 18px 26px,transparent 26px 44px);width:190px;left:auto;opacity:.85}.topbar-inner{position:relative;z-index:1;max-width:1320px;margin:0 auto;padding:16px 28px 20px;display:grid;grid-template-columns:180px auto minmax(0,1fr);gap:18px;align-items:center}.brand{font-weight:900;font-size:24px;line-height:1}.brand span,.hero-title span{color:var(--cyan)}.hero-title{font-size:28px;font-weight:800;line-height:1.16;text-shadow:0 2px 8px rgba(0,0,0,.36)}.nav{display:flex;gap:8px;flex-wrap:wrap}.nav a{color:white;font-size:14px;font-weight:800;text-decoration:none;padding:9px 12px;border:1px solid rgba(47,211,255,.45);border-radius:6px;background:rgba(20,158,231,.18)}
+    main{max-width:1320px;margin:0 auto;padding:24px 28px 32px}h1{font-size:24px;margin:0}.small{color:#52616b;font-size:12px;line-height:1.45}.grid{display:grid;grid-template-columns:360px minmax(0,1fr);gap:16px;align-items:start}.panel,.scenario{background:white;border:1px solid var(--line);border-radius:8px;box-shadow:0 10px 26px rgba(7,33,54,.06)}.panel{padding:16px;margin-bottom:16px}.scenario{padding:14px;margin-bottom:12px}.scenario.active{border-color:#149ee7;box-shadow:0 0 0 3px rgba(20,158,231,.12)}button{border:0;background:#0b83cc;color:white;border-radius:6px;padding:10px 14px;font-weight:800;cursor:pointer;margin-right:8px;margin-top:8px}button.secondary{background:#52616b}button:disabled{background:#93a6b3;cursor:wait}.metrics{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}pre{background:#061427;color:#f5fbff;padding:12px;border-radius:6px;overflow:auto;max-height:320px;white-space:pre-wrap}.result{border-top:1px solid #edf1f3;padding-top:12px;margin-top:12px}.answer{background:#f4fbff;border:1px solid #d6edf9;border-radius:8px;padding:12px;margin:10px 0}
+    @media(max-width:1040px){.topbar-inner,.grid,.metrics{grid-template-columns:1fr}main{padding:16px}}
+  </style>
+</head>
+<body>
+<div class="topbar"><div class="topbar-inner"><div class="brand">Agent<span>|</span>Gate</div><nav class="nav"><a href="/">Chat</a><a href="/data">Data</a><a href="/golden">Tests</a><a href="/scenarios">Scenarios</a><a href="/settings">Settings</a><a href="/feedback">Disliked</a></nav><div class="hero-title">Scenario <span>Generator</span></div></div></div>
+<main>
+  <header class="panel"><h1>Scenario Generator</h1><div class="small">Applies synthetic business conditions to the local SQLite database, then tests the agent without writing chat history.</div><button id="reset" class="secondary">Reset from backup</button><span id="status" class="small">{{ "Backup available" if has_backup else "Applying a scenario will create a backup first" }}</span></header>
+  <div class="grid">
+    <section>
+      {% for scenario in scenarios %}
+      <article class="scenario" data-id="{{ scenario.id }}">
+        <h2>{{ scenario.name }}</h2><p class="small">{{ scenario.description }}</p>
+        <button class="apply">Apply scenario</button><button class="test">Test agent</button>
+      </article>
+      {% endfor %}
+    </section>
+    <section>
+      <div class="panel"><h2>Current Metrics</h2><pre id="metrics">{{ metrics|tojson(indent=2) }}</pre></div>
+      <div class="panel"><h2>Agent Test Results</h2><div id="results" class="small">No scenario test has been run yet.</div></div>
+    </section>
+  </div>
+</main>
+<script>
+const statusEl=document.getElementById('status'), metricsEl=document.getElementById('metrics'), resultsEl=document.getElementById('results');
+function busy(v){document.querySelectorAll('button').forEach(b=>b.disabled=v)}
+async function post(url,payload={}){const res=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});const data=await res.json();if(!data.ok)throw new Error(data.error||'Failed');return data}
+document.addEventListener('click',async e=>{const card=e.target.closest('.scenario');try{if(e.target.classList.contains('apply')){busy(true);const data=await post('/scenarios/apply',{scenario_id:card.dataset.id});document.querySelectorAll('.scenario').forEach(c=>c.classList.toggle('active',c===card));metricsEl.textContent=JSON.stringify(data.metrics,null,2);statusEl.textContent=`Applied ${data.scenario.name}`;}if(e.target.classList.contains('test')){busy(true);resultsEl.textContent='Testing agent...';const data=await post('/scenarios/test',{scenario_id:card.dataset.id});resultsEl.innerHTML=data.results.map(r=>`<div class="answer"><strong>${r.question}</strong><div>Tool: ${r.tool||'none'} | ${(r.steps||[]).join(' -> ')} | ${r.duration_ms||0} ms</div><p>${String(r.answer||r.error||'').replaceAll('<','&lt;')}</p></div>`).join('');}}catch(err){statusEl.textContent=String(err)}finally{busy(false)}});
+document.getElementById('reset').addEventListener('click',async()=>{try{busy(true);const data=await post('/scenarios/reset');metricsEl.textContent=JSON.stringify(data.metrics,null,2);statusEl.textContent=data.restored?'Restored from backup':'No backup exists yet';document.querySelectorAll('.scenario').forEach(c=>c.classList.remove('active'))}catch(err){statusEl.textContent=String(err)}finally{busy(false)}});
+</script>
+</body>
+</html>

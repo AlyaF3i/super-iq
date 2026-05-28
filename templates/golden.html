@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Golden Tests</title>
+  <style>
+    :root { color-scheme: light; font-family: Inter, Segoe UI, Arial, sans-serif; --blue: #149ee7; --cyan: #2fd3ff; --ink: #101c2e; --line: #d7e5ee; }
+    body { margin: 0; background: linear-gradient(180deg, #eef7fc 0%, #f7fbfe 46%, #edf4f8 100%); color: var(--ink); }
+    .topbar { position: relative; overflow: hidden; background: radial-gradient(circle at 56% 0%, rgba(47,211,255,.22), transparent 34%), linear-gradient(135deg, #020915 0%, #061427 54%, #0a2742 100%); color: white; border-bottom: 4px solid var(--blue); }
+    .topbar::after { content: ""; position: absolute; inset: 0; background: repeating-linear-gradient(135deg, transparent 0 18px, rgba(47,211,255,.72) 18px 26px, transparent 26px 44px); width: 190px; left: auto; opacity: .85; }
+    .topbar-inner { position: relative; z-index: 1; max-width: 1320px; margin: 0 auto; padding: 16px 28px 20px; display: grid; grid-template-columns: 180px auto minmax(0, 1fr); gap: 18px; align-items: center; }
+    .brand { font-weight: 900; font-size: 24px; line-height: 1; }.brand span,.hero-title span{color:var(--cyan)}.hero-title{font-size:28px;font-weight:800;line-height:1.16;text-shadow:0 2px 8px rgba(0,0,0,.36)}
+    .nav { display: flex; gap: 8px; flex-wrap: wrap; }.nav a{color:white;font-size:14px;font-weight:800;text-decoration:none;padding:9px 12px;border:1px solid rgba(47,211,255,.45);border-radius:6px;background:rgba(20,158,231,.18)}
+    main { max-width: 1320px; margin: 0 auto; padding: 24px 28px 32px; }
+    header { display:flex; justify-content:space-between; gap:16px; align-items:flex-start; margin-bottom:16px; } h1{font-size:24px;margin:0}.small{color:#52616b;font-size:12px;line-height:1.45}
+    .panel,.test{background:white;border:1px solid var(--line);border-radius:8px;box-shadow:0 10px 26px rgba(7,33,54,.06)}.panel{padding:16px;margin-bottom:16px}
+    .actions{display:flex;gap:10px;align-items:center;flex-wrap:wrap}button{border:0;background:#0b83cc;color:white;border-radius:6px;padding:10px 14px;font-weight:800;cursor:pointer}button:disabled{background:#93a6b3;cursor:wait}
+    .summary{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}.metric{background:#f4fbff;border:1px solid #d6edf9;border-radius:8px;padding:12px}.metric strong{display:block;font-size:24px}
+    .tests{display:grid;gap:10px}.test{padding:14px}.test-head{display:flex;justify-content:space-between;gap:12px}.badge{border-radius:999px;padding:4px 8px;font-size:12px;font-weight:800}.pass{background:#e8f8ef;color:#176d36}.fail{background:#fff1ed;color:#a23b24}.pending{background:#edf3f7;color:#52616b}
+    pre{background:#061427;color:#f5fbff;padding:12px;border-radius:6px;overflow:auto;max-height:220px;white-space:pre-wrap}.meta{display:flex;gap:8px;flex-wrap:wrap;margin:8px 0}.chip{background:#e8f5fc;border:1px solid #cce8f7;border-radius:999px;color:#0a4771;font-size:12px;font-weight:800;padding:4px 8px}
+    @media(max-width:1040px){.topbar-inner{grid-template-columns:1fr}.summary{grid-template-columns:1fr}main{padding:16px}.test-head,header{display:grid}}
+  </style>
+</head>
+<body>
+<div class="topbar"><div class="topbar-inner"><div class="brand">Agent<span>|</span>Gate</div><nav class="nav"><a href="/">Chat</a><a href="/data">Data</a><a href="/golden">Tests</a><a href="/scenarios">Scenarios</a><a href="/settings">Settings</a><a href="/feedback">Disliked</a></nav><div class="hero-title">Golden <span>Test</span> Suite</div></div></div>
+<main>
+  <header><div><h1>Golden Tests</h1><div class="small">Runs expected-answer checks without creating chat history.</div></div></header>
+  <section class="panel">
+    <div class="actions"><button id="runAll">Run all tests</button><button id="runSelected">Run selected</button><span id="status" class="small">Ready</span></div>
+  </section>
+  <section class="summary panel"><div class="metric"><span class="small">Total</span><strong id="total">0</strong></div><div class="metric"><span class="small">Passed</span><strong id="passed">0</strong></div><div class="metric"><span class="small">Failed</span><strong id="failed">0</strong></div></section>
+  <section class="tests" id="tests">
+    {% for test in tests %}
+    <article class="test" data-id="{{ test.id }}">
+      <div class="test-head"><label><input type="checkbox" class="pick" checked> <strong>{{ test.question }}</strong></label><span class="badge pending">Pending</span></div>
+      <div class="meta"><span class="chip">{{ test.category }}</span><span class="chip">Expected: {{ test.tools|join(", ") }}</span></div>
+      <div class="small failures"></div><pre class="answer" hidden></pre>
+    </article>
+    {% endfor %}
+  </section>
+</main>
+<script>
+const statusEl=document.getElementById('status'), runAll=document.getElementById('runAll'), runSelected=document.getElementById('runSelected');
+function setBusy(busy){runAll.disabled=busy;runSelected.disabled=busy;statusEl.textContent=busy?'Running tests...':'Ready'}
+function paint(results, summary){document.getElementById('total').textContent=summary.total;document.getElementById('passed').textContent=summary.passed;document.getElementById('failed').textContent=summary.failed;for(const r of results){const el=document.querySelector(`.test[data-id="${r.id}"]`);if(!el)continue;const badge=el.querySelector('.badge');badge.textContent=r.ok?'Pass':'Fail';badge.className='badge '+(r.ok?'pass':'fail');el.querySelector('.failures').textContent=r.failures.join(' | ');const pre=el.querySelector('.answer');pre.hidden=false;pre.textContent=`Tool: ${r.tool || 'none'}\\nSteps: ${(r.steps||[]).join(' -> ')}\\nDuration: ${r.duration_ms} ms\\n\\n${r.answer || ''}`}}
+async function run(ids){setBusy(true);try{const res=await fetch('/golden/run',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ids})});const data=await res.json();if(!data.ok)throw new Error(data.error||'Failed');paint(data.results,data.summary)}catch(e){statusEl.textContent=String(e)}finally{setBusy(false)}}
+runAll.addEventListener('click',()=>run([]));runSelected.addEventListener('click',()=>run(Array.from(document.querySelectorAll('.test')).filter(el=>el.querySelector('.pick').checked).map(el=>el.dataset.id)));
+</script>
+</body>
+</html>
