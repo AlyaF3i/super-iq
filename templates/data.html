@@ -21,6 +21,7 @@
     .nav { display: flex; gap: 10px; margin-top: 0; justify-content: flex-start; }
     .nav a { color: rgba(255, 255, 255, 0.88); font-size: 14px; font-weight: 800; text-decoration: none; padding: 5px 2px; border-bottom: 2px solid rgba(47, 211, 255, 0.18); cursor: pointer; transition: color .16s ease, border-color .16s ease, transform .16s ease; }
     .nav a:hover, .nav a:focus-visible { color: white; border-bottom-color: var(--cyan); transform: translateY(-1px); outline: none; }
+    .nav a.active { color: white; border-bottom-color: #ffffff; }
     .panel { background: rgba(255, 255, 255, 0.96); border: 1px solid var(--line); border-radius: 8px; padding: 16px; box-shadow: 0 14px 36px rgba(7, 33, 54, 0.08); }
     .data-controls { display: flex; gap: 10px; align-items: center; margin-bottom: 16px; flex-wrap: wrap; }
     select, input, button { border: 1px solid #c9d3d7; border-radius: 6px; padding: 8px 10px; font: inherit; background: white; }
@@ -38,7 +39,7 @@
 <div class="topbar">
   <div class="topbar-inner">
     <div class="brand">Agent<span>|</span>Gate</div>
-    <nav class="nav"><a href="/">Chat</a><a href="/data">Data</a><a href="/golden">Tests</a><a href="/scenarios">Scenarios</a><a href="/settings">Settings</a><a href="/feedback">Disliked</a></nav>
+    <nav class="nav"><a href="/">Chat</a><a class="active" href="/data">Data</a><a href="/golden">Tests</a><a href="/scenarios">Scenarios</a><a href="/settings">Settings</a><a href="/feedback">Disliked</a></nav>
     <div class="hero-title">Local CRM <span>Data</span> Viewer</div>
   </div>
 </div>

@@ -22,6 +22,7 @@
     .nav { display: flex; gap: 10px; margin-top: 0; justify-content: flex-start; }
     .nav a, .button-link { color: rgba(255, 255, 255, 0.88); font-size: 14px; font-weight: 800; text-decoration: none; padding: 5px 2px; border-bottom: 2px solid rgba(47, 211, 255, 0.18); cursor: pointer; transition: color .16s ease, border-color .16s ease, transform .16s ease; }
     .nav a:hover, .nav a:focus-visible, .button-link:hover { color: white; border-bottom-color: var(--cyan); transform: translateY(-1px); outline: none; }
+    .nav a.active { color: white; border-bottom-color: #ffffff; }
     .summary { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin-bottom: 16px; }
     .metric, .panel, .item { background: white; border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 10px 26px rgba(7, 33, 54, 0.06); }
     .metric { padding: 14px; }
@@ -56,7 +57,7 @@
 <div class="topbar">
   <div class="topbar-inner">
     <div class="brand">Agent<span>|</span>Gate</div>
-    <nav class="nav"><a href="/">Chat</a><a href="/data">Data</a><a href="/golden">Tests</a><a href="/scenarios">Scenarios</a><a href="/settings">Settings</a><a href="/feedback">Disliked</a></nav>
+    <nav class="nav"><a href="/">Chat</a><a href="/data">Data</a><a href="/golden">Tests</a><a href="/scenarios">Scenarios</a><a href="/settings">Settings</a><a class="active" href="/feedback">Disliked</a></nav>
     <div class="hero-title">Disliked <span>Response</span> Review</div>
   </div>
 </div>
