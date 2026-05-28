@@ -21,7 +21,7 @@
       <label>Data source <select name="data_source"><option value="local" {% if settings.data_source == "local" %}selected{% endif %}>Local SQLite</option><option value="zoho" {% if settings.data_source != "local" %}selected{% endif %}>Zoho/MCP</option></select></label>
       <label>Max SQL rows returned <input name="max_sql_rows" type="number" min="1" max="500" value="{{ settings.max_sql_rows }}"></label>
       <label>Language behavior <select name="language_mode"><option value="match_user" {% if settings.language_mode == "match_user" %}selected{% endif %}>Match user language</option><option value="arabic" {% if settings.language_mode == "arabic" %}selected{% endif %}>Prefer Arabic</option><option value="english" {% if settings.language_mode == "english" %}selected{% endif %}>Prefer English</option></select></label>
-      <label>Admin password <input name="admin_password" type="password" placeholder="admin" autocomplete="current-password"></label>
+      <label>Admin password <input name="admin_password" type="password" autocomplete="current-password"></label>
       <div><button type="submit">Save settings</button><span id="status" class="status"></span></div>
     </form>
   </section>
