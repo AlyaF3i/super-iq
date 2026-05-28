@@ -52,7 +52,7 @@ DEFAULT_SETTINGS = {
     "temperature": 0.1,
     "num_predict": 900,
     "data_source": DATA_SOURCE,
-    "max_sql_rows": 50,
+    "max_sql_rows": 40000,
     "language_mode": "match_user",
 }
 ADMIN_PASSWORD = "admin"
@@ -71,7 +71,7 @@ def load_app_settings() -> dict[str, Any]:
             pass
     settings["temperature"] = max(0.0, min(float(settings.get("temperature", 0.1)), 2.0))
     settings["num_predict"] = max(128, min(int(settings.get("num_predict", 900)), 8192))
-    settings["max_sql_rows"] = max(1, min(int(settings.get("max_sql_rows", 50)), 500))
+    settings["max_sql_rows"] = max(1, min(int(settings.get("max_sql_rows", 40000)), 40000))
     settings["data_source"] = str(settings.get("data_source") or "local").lower()
     settings["language_mode"] = str(settings.get("language_mode") or "match_user")
     settings["model"] = str(settings.get("model") or DEFAULT_SETTINGS["model"])
@@ -88,7 +88,7 @@ def save_app_settings(settings: dict[str, Any]) -> dict[str, Any]:
             "temperature": max(0.0, min(float(settings.get("temperature", 0.1)), 2.0)),
             "num_predict": max(128, min(int(settings.get("num_predict", 900)), 8192)),
             "data_source": str(settings.get("data_source") or "local").lower(),
-            "max_sql_rows": max(1, min(int(settings.get("max_sql_rows", 50)), 500)),
+            "max_sql_rows": max(1, min(int(settings.get("max_sql_rows", 40000)), 40000)),
             "language_mode": str(settings.get("language_mode") or "match_user"),
         }
     )
@@ -908,7 +908,7 @@ def local_function_tools() -> list[dict[str, Any]]:
                             "description": (
                                 "A safe SQLite SELECT query using exact table and column names. "
                                 "Do not use INSERT, UPDATE, DELETE, DROP, ALTER, CREATE, PRAGMA, ATTACH, or VACUUM. "
-                                "GROUP BY may contain only raw non-aggregate columns. Include LIMIT 50 unless returning aggregate rows. "
+                                "GROUP BY may contain only raw non-aggregate columns. For non-aggregate row lists, include a LIMIT no higher than the configured max SQL rows. "
                                 "For overdue invoice/payment lists, return Invoice_Status, Subject, Account_Name, Due_Date, Grand_Total, Balance."
                             ),
                         }
@@ -1078,6 +1078,7 @@ def choose_local_native_tool_call(
         "For simple counts/totals/lists use local_sql. For multi-step analysis, rankings, recommendations, risk, focus, or comparisons use python_analysis. "
         "When generating python_analysis code, prefer loading raw rows with SELECT column lists and doing grouping in pandas/Polars. "
         "Do not use SQL GROUP BY unless every selected non-aggregate column is included in GROUP BY. "
+        "Do not use LIMIT 50 by habit. If the user asks for row-level data and does not specify a smaller number, use the configured max SQL rows. "
         "For weakest sales-pipeline stage, do not infer funnel transitions from stage order; compute stage risk_score = sum(value_at_risk) * (1 + avg(Sales_Cycle_Duration)/365) "
         "for open Deals stages and rank by total risk_score descending, not by per-deal averages. "
         "For overdue payments use local_sql on Invoices and select Invoice_Status, Subject, Account_Name, Due_Date, Grand_Total, Balance; "
@@ -1170,6 +1171,13 @@ def execute_local_sql(sql: str) -> dict[str, Any]:
         return {"sql": sql, "rows": [dict(row) for row in rows], "row_count": len(rows)}
     finally:
         con.close()
+
+
+def expand_stale_default_limit(sql: str, user_message: str) -> str:
+    max_rows = load_app_settings()["max_sql_rows"]
+    if max_rows <= 50 or re.search(r"\b50\b", user_message):
+        return sql
+    return re.sub(r"\blimit\s+50\b", f"limit {max_rows}", sql, flags=re.I)
 
 
 def has_overdue_invoice_shape(result: dict[str, Any]) -> bool:
@@ -1587,8 +1595,9 @@ def answer_from_local(user_message: str) -> dict[str, Any]:
     sql = str(tool_args.get("sql") or "").strip()
     if not sql:
         raise RuntimeError("Native tool call selected local_sql without sql.")
+    sql = expand_stale_default_limit(sql, user_message)
     if " limit " not in sql.lower() and not re.search(r"\bcount\s*\(|\bsum\s*\(|\bavg\s*\(|\bmin\s*\(|\bmax\s*\(", sql, re.I):
-        sql = f"{sql.rstrip(';')} limit 50"
+        sql = f"{sql.rstrip(';')} limit {load_app_settings()['max_sql_rows']}"
     try:
         result = execute_local_sql(sql)
     except Exception as exc:
@@ -1599,8 +1608,9 @@ def answer_from_local(user_message: str) -> dict[str, Any]:
             sql = str(tool_args_2["sql"])
         else:
             raise RuntimeError("Ollama did not repair the local_sql call.")
+        sql = expand_stale_default_limit(sql, user_message)
         if " limit " not in sql.lower() and not re.search(r"\bcount\s*\(|\bsum\s*\(|\bavg\s*\(|\bmin\s*\(|\bmax\s*\(", sql, re.I):
-            sql = f"{sql.rstrip(';')} limit 50"
+            sql = f"{sql.rstrip(';')} limit {load_app_settings()['max_sql_rows']}"
         result = execute_local_sql(sql)
         steps.append(
             {
